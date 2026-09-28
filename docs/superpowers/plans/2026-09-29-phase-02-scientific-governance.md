@@ -161,11 +161,12 @@ git commit -m "feat: add scientific decision lock"
 **Interfaces:**
 - `createResearchResult(input): Promise<ResearchResult>`
 - `supersedeResearchResult(newResultId, oldResultId, actor): Promise<void>`
-- 结果至少保存 dataVersionRef、analysisRevisionId、codeCommitRef（代码型结果必需）、runRef、outputRefs。
+- 结果至少保存 dataVersionRef、analysisRevisionId、runRef、outputRefs。
+- `GitCommitLocator = { repositoryFullName: string; sha: string }` 定义在 `packages/domain/src/research-result.ts`；代码型结果在第四阶段 GitHubReference 可用前先保存不可变 locator，第四阶段再验证并建立 GitHubReference。
 
 - [ ] **Step 1: 写失败测试**
 
-覆盖：创建后不能 update；supersedes 不删除旧 result；代码型正式结果无 commit 时拒绝。
+覆盖：创建后不能 update；supersedes 不删除旧 result；`executionKind='code'` 的正式结果缺少 `GitCommitLocator` 时拒绝。
 
 - [ ] **Step 2: 运行测试确认失败**
 
