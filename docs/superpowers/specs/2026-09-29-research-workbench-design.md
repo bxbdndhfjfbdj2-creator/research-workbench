@@ -1,6 +1,6 @@
 # Research Workbench 第一版设计规格
 
-- 状态：待用户审阅
+- 状态：已批准
 - 日期：2026-09-29
 - 适用对象：固定 6 人、单一团队、私有部署、不开放公众注册的社会科学研究团队
 - 运行模式：AI 原生、混合型智能代理协作
@@ -206,7 +206,7 @@ Harness Web UI 保留为管理员和高级调试控制台。
 - `worker`：可靠异步任务与 Agent Worker。
 - `postgres`：科研业务事实源。
 - `object-storage`：文件和大型产物。
-- `deepseek-harness`：独立 AI 执行运行时。
+- `deepseek-harness`：独立 AI 执行进程。第一版采用 Harness TypeScript SDK 的 stdio 路径，由 Agent Worker 在同一执行主机/容器中启动固定版本的 `dsh --profile sdk` 子进程；它在进程边界上独立，但不要求成为单独的网络 Compose 服务。Harness Web 可作为可选管理员调试控制台启动，不是业务运行依赖。
 
 ### 6.2 推荐技术栈
 
