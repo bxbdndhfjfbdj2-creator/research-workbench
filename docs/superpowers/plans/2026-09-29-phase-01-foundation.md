@@ -245,7 +245,47 @@ git add packages/domain packages/application
 git commit -m "feat: add projects memberships and research states"
 ```
 
-### Task 6: 实现可靠 Outbox Worker 与通用 Inbox 去重
+### Task 6: 实现 ResearchTask 科研事项
+
+**Files:**
+- Create: `packages/db/src/schema/research-task.ts`
+- Create: `packages/domain/src/research-task.ts`
+- Create: `packages/application/src/tasks/research-task-service.ts`
+- Test: `packages/application/src/tasks/research-task-service.test.ts`
+
+**Interfaces:**
+- `ResearchTaskStatus = 'open'|'in_progress'|'blocked'|'completed'|'cancelled'`。
+- `createResearchTask(projectId, input, actor): Promise<ResearchTask>`。
+- `assignResearchTask(taskId, memberId, actor): Promise<ResearchTask>`。
+- `setResearchTaskStatus(taskId, status, actor): Promise<ResearchTask>`。
+- ResearchTask 是科研工作事项，不承载正式科学审批，也不替代 ScientificDecision。
+
+- [ ] **Step 1: 写失败测试**
+
+覆盖：项目成员可创建事项；无权成员 forbidden；任务状态变化产生科研事件；完成 ResearchTask 不自动改变任何正式研究节点或维度状态。
+
+- [ ] **Step 2: 运行测试确认失败**
+
+Run: `pnpm vitest run packages/application/src/tasks/research-task-service.test.ts`  
+Expected: FAIL。
+
+- [ ] **Step 3: 实现 ResearchTask schema/service**
+
+所有 mutation 使用阶段一授权和 ResearchEvent API；为第三阶段 AgentTask 保留稳定 `researchTaskId`。
+
+- [ ] **Step 4: 运行测试确认通过**
+
+Run: `pnpm vitest run packages/application/src/tasks/research-task-service.test.ts`  
+Expected: PASS。
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/db/src/schema/research-task.ts packages/domain/src/research-task.ts packages/application/src/tasks
+git commit -m "feat: add research tasks"
+```
+
+### Task 7: 实现可靠 Outbox Worker 与通用 Inbox 去重
 
 **Files:**
 - Create: `packages/queue/src/outbox-dispatcher.ts`
@@ -285,7 +325,7 @@ git add packages/queue apps/worker tests/integration
 git commit -m "feat: add reliable outbox and inbox processing"
 ```
 
-### Task 7: 实现最小研究组合和项目 Web 外壳
+### Task 8: 实现最小研究组合和项目 Web 外壳
 
 **Files:**
 - Create: `apps/web/app/(app)/layout.tsx`
