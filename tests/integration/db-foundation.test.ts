@@ -1,0 +1,79 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  initializeFoundationDatabase,
+  researchEventRepository,
+} from "../../packages/db/src/client";
+import {
+  startTestDatabase,
+  stopTestDatabase,
+  type TestDatabase,
+} from "./support/postgres";
+
+describe("foundation database", () => {
+  let testDb: TestDatabase;
+
+  beforeAll(async () => {
+    testDb = await startTestDatabase();
+    await initializeFoundationDatabase(testDb.client.sql);
+  }, 120_000);
+
+  afterAll(async () => {
+    if (testDb) await stopTestDatabase(testDb);
+  });
+
+  it("creates the foundational research tables", async () => {
+    const rows = await testDb.client.sql<{ table_name: string }[]>\`
+      select table_name
+      from information_schema.tables
+      where table_schema = 'public'
+    \`;
+    const tables = new Set(rows.map((row) => row.table_name));
+
+    for (const expected of [
+      "teams",
+      "members",
+      "research_portfolios",
+      "research_projects",
+      "project_memberships",
+      "research_dimension_states",
+      "research_events",
+      "outbox_events",
+      "integration_inbox",
+    ]) {
+      expect(tables.has(expected), expected).toBe(true);
+    }
+  });
+
+  it("enforces member email uniqueness within a team", async () => {
+    await testDb.client.sql\`insert into teams (id, name) values ('team-1', 'Team One')\`;
+    await testDb.client.sql\`
+      insert into members (id, team_id, email, display_name, organization_role, actor_type)
+      values ('member-1', 'team-1', 'person@example.com', 'Person', 'researcher', 'human')
+    \`;
+
+    await expect(
+      testDb.client.sql\`
+        insert into members (id, team_id, email, display_name, organization_role, actor_type)
+        values ('member-2', 'team-1', 'person@example.com', 'Other', 'researcher', 'human')
+      \`,
+    ).rejects.toThrow();
+  });
+
+  it("deduplicates external events by provider and external id", async () => {
+    await testDb.client.sql\`
+      insert into integration_inbox (id, provider, external_id, payload)
+      values ('inbox-1', 'github', 'delivery-1', '{}'::jsonb)
+    \`;
+
+    await expect(
+      testDb.client.sql\`
+        insert into integration_inbox (id, provider, external_id, payload)
+        values ('inbox-2', 'github', 'delivery-1', '{}'::jsonb)
+      \`,
+    ).rejects.toThrow();
+  });
+
+  it("does not expose update or delete methods for research events", () => {
+    expect(Object.keys(researchEventRepository).sort()).toEqual(["listByProject"]);
+  });
+});
