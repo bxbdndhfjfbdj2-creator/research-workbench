@@ -122,13 +122,13 @@ git commit -m "chore: add containerized runtime"
 ### Task 3: CI、镜像构建与秘密输出扫描
 
 **Files:**
-- Create: `.github/workflows/ci.yml`
+- Modify: `.github/workflows/ci.yml`
 - Create: `.github/workflows/build-images.yml`
 - Create: `scripts/check-secrets-in-output.ts`
 - Create: `scripts/check-secrets-in-output.test.ts`
 
 **Interfaces:**
-- PR 必跑：lockfile install、typecheck、lint、unit/integration、build。
+- 在第一阶段基线 CI 上增加 secret-output scan、完整 integration/acceptance gate 和发布所需检查；保留 PR 的 lockfile install、typecheck、lint、unit/integration、build。
 - main 成功后构建 immutable SHA-tagged images。
 - CI 不运行需要真实付费模型的测试；真实 Harness smoke 使用受保护环境手动运行。
 - `check-secrets-in-output` 至少识别项目定义的 secret 保留键和测试用伪 key pattern。
