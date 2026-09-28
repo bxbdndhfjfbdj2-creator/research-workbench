@@ -178,7 +178,7 @@ git commit -m "feat: add append-only research events and outbox"
 **Interfaces:**
 - Produces: `createInternalMember(input: {email:string; displayName:string; organizationRole:'lead'|'researcher'}): Promise<Member>`。
 - Produces: `authorizeProjectAccess(actorId, projectId, action): Promise<void>`。
-- `bootstrap-team.ts` 创建 1 lead + 5 researcher；密码只通过 Better Auth credential store 处理，不写入业务表。
+- `bootstrap-team.ts` 创建 1 个 Team、1 个默认 `ResearchPortfolio`、1 lead + 5 researcher；密码只通过 Better Auth credential store 处理，不写入业务表。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -215,8 +215,9 @@ git commit -m "feat: add internal six-member authentication"
 - Test: `packages/application/src/projects/project-service.test.ts`
 
 **Interfaces:**
-- Produces: `createProject(input): Promise<ResearchProject>`。
-- Produces: `setProjectMembership(projectId, memberId, role): Promise<ProjectMembership>`。
+- Produces: `createProject(input: { portfolioId:string; title:string; leadMemberId:string }): Promise<ResearchProject>`。
+- `ProjectMembershipRole = 'lead'|'collaborator'|'method_challenger'|'theory_replication_challenger'|'observer'`。
+- Produces: `setProjectMembership(projectId, memberId, role: ProjectMembershipRole): Promise<ProjectMembership>`。
 - Produces: `setDimensionState(projectId, dimension, state, actor): Promise<ResearchDimensionState>`。
 - 维度与状态枚举必须逐字匹配批准规格。
 
