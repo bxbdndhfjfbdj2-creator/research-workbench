@@ -130,7 +130,29 @@ phase/06-deployment-hardening
 
 只有明确批准当前阶段，才开始下一阶段。
 
-## 六、执行顺序
+## 六、规格覆盖矩阵
+
+| 规格主题 | 实施阶段 |
+|---|---|
+| 固定六人、内部认证、组织/项目角色 | 第一阶段 |
+| 研究组合、研究项目、多维状态、ResearchTask | 第一阶段 |
+| ResearchEvent、Outbox、IntegrationInbox | 第一阶段 |
+| 非线性研究节点/版本/关系/分支/回路 | 第二阶段 |
+| ScientificDecision、DecisionReview、科学决策锁 | 第二阶段 |
+| 不可变 ResearchResult 与证据关系 | 第二阶段；第四阶段补 GitHub 验证 |
+| AgentTask、AgentRun、AgentContextSnapshot、HarnessSessionReference | 第三阶段 |
+| Harness SDK、Sandbox、人工问答/审批、Codex/Claude Code | 第三阶段 |
+| GitHubReference、Webhook、PR/CI 真实性、main 分支治理 | 第四阶段 |
+| ResearchAsset/Version/Usage、对象存储、资产升级 | 第五阶段 |
+| 总负责人/研究成员驾驶舱、注意力四分类、会议简报 | 第五阶段 |
+| 系统状态页、可观测性、秘密保护、备份恢复 | 第六阶段 |
+| Docker Compose、预发布/正式部署、回退 | 第六阶段 |
+| 设计规格第 31 节核心闭环和失败场景 | 第六阶段全量验收 |
+| 第一版明确不做的多租户/计费/Kubernetes/自研模型等 | 所有阶段 Global Constraints 持续约束 |
+
+自检未发现没有实施归属的第一版承诺。若实施中发现必须改变上述映射的设计缺口，应停止当前 Task，回到规格/计划评审，而不是在代码中自行扩展范围。
+
+## 七、执行顺序
 
 - 第一阶段计划：`2026-09-29-phase-01-foundation.md`
 - 第二阶段计划：`2026-09-29-phase-02-scientific-governance.md`
