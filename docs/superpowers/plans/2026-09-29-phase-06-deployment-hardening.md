@@ -4,7 +4,7 @@
 
 **Goal:** 把前五阶段的软件加固为可在私有云服务器持续运行的第一版：可观测、可备份、可升级、可回退，并通过完整自动化与人工科研闭环验收。
 
-**Architecture:** Docker Compose 运行 web/worker/postgres/minio/deepseek-harness；GitHub Actions 构建和测试镜像，预发布环境先部署并人工验收，正式环境需显式审批。日志使用结构化输出和可选 OpenTelemetry exporter，不记录 secret/hidden reasoning。
+**Architecture:** Docker Compose 运行 web/worker/postgres/minio；Worker 镜像携带固定版本的 DeepSeek Harness runtime，并按 AgentRun 通过 SDK 启动独立 dsh 子进程。可选 `harness-console` Compose profile 仅用于管理员调试，不是业务依赖。GitHub Actions 构建和测试镜像，预发布环境先部署并人工验收，正式环境需显式审批。日志使用结构化输出和可选 OpenTelemetry exporter，不记录 secret/hidden reasoning。
 
 **Tech Stack:** Docker Compose；GHCR；GitHub Actions；PostgreSQL backup；MinIO/S3；Pino；OpenTelemetry；Playwright。
 
@@ -83,12 +83,13 @@ git commit -m "feat: add health and observability foundation"
 - Create: `infra/docker/compose.prod.yml`
 - Create: `apps/web/Dockerfile`
 - Create: `apps/worker/Dockerfile`
-- Create: `infra/harness/Dockerfile`
+- Create: `infra/harness/runtime.Dockerfile`
 - Create: `scripts/smoke-compose.sh`
 - Create: `tests/integration/compose-config.test.ts`
 
 **Interfaces:**
-- services: web, worker, postgres, minio, deepseek-harness。
+- services: web, worker, postgres, minio；可选 debug profile: harness-console。
+- Worker image 必须包含 `infra/harness/version.env` 指定的 dsh runtime，并由 HarnessAdapter 以子进程启动。
 - secret 通过 env file/secret manager 注入，不 bake 到 image。
 - dev 可暴露调试端口；prod 只暴露必要 Web 入口。
 - Compose service names 在 staging/prod 保持一致，便于 runbook 共用。
@@ -114,7 +115,7 @@ Expected: config valid，所有服务健康，smoke PASS。
 - [ ] **Step 5: Commit**
 
 ```bash
-git add infra/docker apps/web/Dockerfile apps/worker/Dockerfile infra/harness/Dockerfile scripts/smoke-compose.sh tests/integration/compose-config.test.ts
+git add infra/docker apps/web/Dockerfile apps/worker/Dockerfile infra/harness/runtime.Dockerfile scripts/smoke-compose.sh tests/integration/compose-config.test.ts
 git commit -m "chore: add containerized runtime"
 ```
 
