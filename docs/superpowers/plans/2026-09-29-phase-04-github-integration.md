@@ -81,6 +81,7 @@ git commit -m "feat: add GitHub engineering references"
 - `getRequiredChecks(repo, ref): Promise<GitCheckSummary[]>`
 - `createIssue(repo, input): Promise<GitIssue>`
 - `createBranch(repo, base, name): Promise<GitBranch>`
+- `getBranchProtection(repo, branch): Promise<BranchProtectionSummary>`。
 - Workbench 不提供 `directCommitToMain` 方法。
 
 - [ ] **Step 1: 写失败契约测试**
@@ -218,7 +219,45 @@ git add packages/application/src/agents/github-linking.ts packages/application/s
 git commit -m "feat: link agent runs to verified GitHub facts"
 ```
 
-### Task 6: 实现工程事实 UI 与阶段验收
+### Task 6: 配置并核验 GitHub main 分支治理
+
+**Files:**
+- Create: `.github/CODEOWNERS`
+- Create: `scripts/verify-github-governance.ts`
+- Create: `scripts/verify-github-governance.test.ts`
+- Create: `docs/operations/github-governance.md`
+
+**Interfaces:**
+- `verifyGitHubGovernance(adapter, repo): Promise<GovernanceReport>`。
+- 第一版要求 `main`：禁止 force push；通过 Pull Request 合并；至少要求基线 CI check；Agent 使用的 GitHub App/token 不拥有绕过规则集的权限。
+- 配置本身可由仓库管理员在 GitHub Settings/Rulesets 完成；脚本负责自动核验，避免依赖口头约定。
+
+- [ ] **Step 1: 写失败测试**
+
+FakeGitHubAdapter 返回“允许直接 push / 无 required CI”时 GovernanceReport.failed=true；满足规则时 passed=true。
+
+- [ ] **Step 2: 运行测试确认失败**
+
+Run: `pnpm vitest run scripts/verify-github-governance.test.ts`  
+Expected: FAIL。
+
+- [ ] **Step 3: 实现核验脚本和运行手册**
+
+手册列出 GitHub ruleset 必需项，并明确不允许给 Agent 绕过权限。
+
+- [ ] **Step 4: 在目标仓库核验**
+
+Run: `pnpm tsx scripts/verify-github-governance.ts --repo bxbdndhfjfbdj2-creator/research-workbench`  
+Expected: PASS；若失败，先由管理员修正 GitHub 仓库规则再继续本阶段。
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add .github/CODEOWNERS scripts/verify-github-governance.ts scripts/verify-github-governance.test.ts docs/operations/github-governance.md
+git commit -m "chore: enforce GitHub repository governance"
+```
+
+### Task 7: 实现工程事实 UI 与阶段验收
 
 **Files:**
 - Create: `apps/web/src/components/github-references/*`
