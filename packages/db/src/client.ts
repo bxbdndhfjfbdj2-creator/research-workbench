@@ -33,7 +33,7 @@ export async function initializeFoundationDatabase(sql: Sql): Promise<void> {
 }
 
 export const researchEventRepository = {
-  async listByProject(sql: Sql, projectId: string): Promise<unknown[]> {
+  async listByProject(sql: Sql, projectId: string): Promise<readonly unknown[]> {
     return sql`
       select id, project_id, event_type, actor_type, actor_id, payload, created_at
       from research_events
