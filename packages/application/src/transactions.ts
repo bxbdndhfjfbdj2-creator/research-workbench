@@ -1,10 +1,11 @@
 import type { Sql } from "postgres";
 
-export type TransactionSql = Sql;
+export type TransactionSql = Pick<Sql, "unsafe">;
 
 export async function runInTransaction<T>(
-  _sql: Sql,
-  _work: (tx: TransactionSql) => Promise<T>,
+  sql: Sql,
+  work: (tx: TransactionSql) => Promise<T>,
 ): Promise<T> {
-  throw new Error("runInTransaction not implemented");
+  const result = await sql.begin(async (tx) => work(tx as unknown as TransactionSql));
+  return result as T;
 }
