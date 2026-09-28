@@ -48,9 +48,11 @@
 - Create: `packages/application/package.json`
 - Create: `packages/queue/package.json`
 - Create: `tests/integration/vitest.config.ts`
+- Create: `.github/workflows/ci.yml`
 
 **Interfaces:**
 - Produces: 根脚本 `pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build`。
+- Produces: 基线 GitHub Actions CI，在每个 PR 上执行 lockfile install、typecheck、lint、test、build；第六阶段再增强镜像、安全和部署 gate。
 - Produces: `loadConfig(env: NodeJS.ProcessEnv): AppConfig`，只返回已验证的非秘密元数据和 secret reference，不打印秘密。
 
 - [ ] **Step 1: 写失败的工作区烟雾测试**
@@ -75,7 +77,7 @@ Expected: PASS。
 
 ```bash
 git add .
-git commit -m "chore: initialize Research Workbench workspace"
+git commit -m "chore: initialize Research Workbench workspace and CI"
 ```
 
 ### Task 2: 建立核心数据库 schema 与迁移
@@ -91,6 +93,7 @@ git commit -m "chore: initialize Research Workbench workspace"
 - Create: `packages/db/src/client.ts`
 - Create: `packages/db/drizzle.config.ts`
 - Create: `packages/db/migrations/*`
+- Create: `tests/integration/support/postgres.ts`
 - Test: `tests/integration/db-foundation.test.ts`
 
 **Interfaces:**
@@ -109,7 +112,7 @@ Expected: FAIL，schema/migration 尚不存在。
 
 - [ ] **Step 3: 实现 schema、迁移和测试数据库 helper**
 
-容量规则由 application 服务在 serializable transaction 中实现；数据库对 email/team、inbox externalId 建唯一约束。
+容量规则由 application 服务在 serializable transaction 中实现；数据库对 email/team、inbox externalId 建唯一约束。集成测试使用 `@testcontainers/postgresql` 启动隔离 PostgreSQL，不依赖开发者手工准备数据库。
 
 - [ ] **Step 4: 验证**
 
