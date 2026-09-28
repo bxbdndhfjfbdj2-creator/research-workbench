@@ -8,6 +8,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write
+
 jobs:
   quality:
     runs-on: ubuntu-latest
@@ -21,11 +24,16 @@ jobs:
           node-version: 22.19.0
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
-      - name: Save generated lockfile
-        uses: actions/upload-artifact@v4
-        with:
-          name: pnpm-lock
-          path: pnpm-lock.yaml
+      - name: Commit generated lockfile
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/phase/')
+        run: |
+          if [ -n "$(git status --porcelain -- pnpm-lock.yaml)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add pnpm-lock.yaml
+            git commit -m "chore: lock workspace dependencies"
+            git push
+          fi
       - name: Tests
         run: pnpm test
       - name: Typecheck
