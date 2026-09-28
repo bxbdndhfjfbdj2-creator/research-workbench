@@ -36,23 +36,26 @@
 - Create: `packages/observability/src/metrics.ts`
 - Create: `apps/web/app/api/health/live/route.ts`
 - Create: `apps/web/app/api/health/ready/route.ts`
+- Create: `apps/web/app/(app)/system/page.tsx`
 - Create: `apps/worker/src/health.ts`
 - Test: `packages/observability/src/logger.test.ts`
 - Test: `tests/integration/health.test.ts`
+- Test: `tests/acceptance/system-status.spec.ts`
 
 **Interfaces:**
 - `createLogger(context): Logger` 自动 redact secret keys。
 - liveness 只说明进程存活；readiness 检查 PostgreSQL。
 - Worker readiness 额外检查 queue。
 - Harness health 单独展示，不让 Web 因 Harness 暂停而完全失去科研数据访问。
+- `/system` 为总负责人/管理员可见，展示 Web、Worker、PostgreSQL、对象存储、Harness、GitHub 集成健康摘要，不暴露 secret。
 
 - [ ] **Step 1: 写失败测试**
 
-secret redaction；DB down 时 readiness=false；Harness down 仍保持 Web liveness=true 并在依赖状态中标红。
+secret redaction；DB down 时 readiness=false；Harness down 仍保持 Web liveness=true 并在依赖状态中标红；普通研究成员访问 `/system` 被拒绝。
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `pnpm vitest run packages/observability/src/logger.test.ts tests/integration/health.test.ts`  
+Run: `pnpm vitest run packages/observability/src/logger.test.ts tests/integration/health.test.ts && pnpm playwright test tests/acceptance/system-status.spec.ts`  
 Expected: FAIL。
 
 - [ ] **Step 3: 实现 logger/health**
@@ -61,13 +64,13 @@ Expected: FAIL。
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `pnpm vitest run packages/observability/src/logger.test.ts tests/integration/health.test.ts`  
+Run: `pnpm vitest run packages/observability/src/logger.test.ts tests/integration/health.test.ts && pnpm playwright test tests/acceptance/system-status.spec.ts`  
 Expected: PASS。
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/observability apps/web/app/api/health apps/worker/src/health.ts tests/integration/health.test.ts
+git add packages/observability apps/web/app/api/health apps/web/app/(app)/system apps/worker/src/health.ts tests/integration/health.test.ts tests/acceptance/system-status.spec.ts
 git commit -m "feat: add health and observability foundation"
 ```
 
