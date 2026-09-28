@@ -22,11 +22,11 @@ describe("foundation database", () => {
   });
 
   it("creates the foundational research tables", async () => {
-    const rows = await testDb.client.sql<{ table_name: string }[]>\`
+    const rows = (await testDb.client.sql`
       select table_name
       from information_schema.tables
       where table_schema = 'public'
-    \`;
+    `) as Array<{ table_name: string }>;
     const tables = new Set(rows.map((row) => row.table_name));
 
     for (const expected of [
@@ -45,31 +45,31 @@ describe("foundation database", () => {
   });
 
   it("enforces member email uniqueness within a team", async () => {
-    await testDb.client.sql\`insert into teams (id, name) values ('team-1', 'Team One')\`;
-    await testDb.client.sql\`
+    await testDb.client.sql`insert into teams (id, name) values ('team-1', 'Team One')`;
+    await testDb.client.sql`
       insert into members (id, team_id, email, display_name, organization_role, actor_type)
       values ('member-1', 'team-1', 'person@example.com', 'Person', 'researcher', 'human')
-    \`;
+    `;
 
     await expect(
-      testDb.client.sql\`
+      testDb.client.sql`
         insert into members (id, team_id, email, display_name, organization_role, actor_type)
         values ('member-2', 'team-1', 'person@example.com', 'Other', 'researcher', 'human')
-      \`,
+      `,
     ).rejects.toThrow();
   });
 
   it("deduplicates external events by provider and external id", async () => {
-    await testDb.client.sql\`
+    await testDb.client.sql`
       insert into integration_inbox (id, provider, external_id, payload)
       values ('inbox-1', 'github', 'delivery-1', '{}'::jsonb)
-    \`;
+    `;
 
     await expect(
-      testDb.client.sql\`
+      testDb.client.sql`
         insert into integration_inbox (id, provider, external_id, payload)
         values ('inbox-2', 'github', 'delivery-1', '{}'::jsonb)
-      \`,
+      `,
     ).rejects.toThrow();
   });
 
