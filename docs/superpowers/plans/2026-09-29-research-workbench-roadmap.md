@@ -57,8 +57,8 @@ research-workbench/
 │   ├── integration/               # Postgres/队列/适配器集成测试
 │   └── acceptance/                # Playwright + 核心科研闭环
 ├── infra/
-│   ├── docker/                    # dev/staging/prod compose
-│   ├── harness/                   # Workbench Harness profile/patch
+│   ├── docker/                    # dev/staging/prod compose；worker 镜像内含 pinned dsh runtime
+│   ├── harness/                   # Workbench Harness profile/patch 与固定版本元数据
 │   └── deploy/                    # 云服务器部署脚本与运行手册
 ├── scripts/                       # bootstrap、seed、backup、smoke
 └── .github/workflows/             # CI、镜像、预发布/正式发布
@@ -84,7 +84,7 @@ domain -> no framework / no DB / no Harness / no GitHub
 | 第三阶段 | AgentTask/Run、上下文快照、Harness SDK、人工暂停 | 真实 Harness 测试任务可运行；故障可重试；AI 无法直接变更正式状态 |
 | 第四阶段 | GitHub App、Webhook、Branch/Commit/PR/CI 语义映射 | 无 Commit/CI 不能标记工程验证完成；Webhook 幂等 |
 | 第五阶段 | 共享资产、对象存储、组合/成员驾驶舱、注意力流 | 跨项目资产可升级/追踪；首页只突出四类主动打扰事件 |
-| 第六阶段 | 安全加固、可观测性、Docker Compose、预发布/正式部署、全量验收 | 自动测试 + 预发布人工验收 + 正式烟雾测试全部通过 |
+| 第六阶段 | 安全加固、可观测性、Worker 内置 pinned Harness runtime、Docker Compose、预发布/正式部署、全量验收 | 自动测试 + 预发布人工验收 + 正式烟雾测试全部通过 |
 
 ## 三、Git 与审查策略
 
