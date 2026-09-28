@@ -33,6 +33,7 @@
 
 **Files:**
 - Create: `packages/db/src/schema/agent-runtime.ts`
+- Create: `packages/db/src/schema/harness-session-reference.ts`
 - Create: `packages/domain/src/agent-runtime.ts`
 - Create: `packages/application/src/agents/create-agent-task.ts`
 - Create: `packages/application/src/agents/create-agent-run.ts`
@@ -44,6 +45,7 @@
 - `createAgentRun(agentTaskId, executionPolicy, actor): Promise<AgentRun>`
 - `buildAgentContextSnapshot(projectId, refs): Promise<AgentContextSnapshot>`
 - Run state enum 逐字实现规格定义。
+- `HarnessSessionReference` 独立保存 `runId`、`sessionId`、`runtimeProfile`、`harnessVersion`、时间戳；一个正式 Run 可关联一个当前 Harness Session reference，历史替代通过新记录保留。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -66,7 +68,7 @@ Expected: PASS。
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/db/src/schema/agent-runtime.ts packages/domain/src/agent-runtime.ts packages/application/src/agents tests/integration/agent-runtime-model.test.ts
+git add packages/db/src/schema/agent-runtime.ts packages/db/src/schema/harness-session-reference.ts packages/domain/src/agent-runtime.ts packages/application/src/agents tests/integration/agent-runtime-model.test.ts
 git commit -m "feat: add durable agent task and run model"
 ```
 
@@ -150,6 +152,7 @@ git commit -m "feat: add reliable agent dispatch worker"
 
 **Files:**
 - Create: `packages/harness-adapter/src/sdk-adapter.ts`
+- Create: `packages/application/src/agents/harness-session-reference.ts`
 - Create: `infra/harness/workbench.cordis.yml`
 - Create: `infra/harness/README.md`
 - Test: `packages/harness-adapter/src/sdk-adapter.test.ts`
@@ -158,7 +161,8 @@ git commit -m "feat: add reliable agent dispatch worker"
 **Interfaces:**
 - `SdkHarnessAdapter implements HarnessAdapter`。
 - 通过 `@deepseek-ai/dsh-sdk-client` 启动 named profile；workspace cwd 和 env 白名单明确传入。
-- 运行完成后保存 Harness session id；无 `DEEPSEEK_API_KEY` 时真实 smoke 测试明确 SKIP。
+- `recordHarnessSessionReference(runId, sessionId, metadata): Promise<HarnessSessionReference>` 在 SDK 接受正式 Session 后立即持久化映射。
+- 运行完成后保留 Harness session id；无 `DEEPSEEK_API_KEY` 时真实 smoke 测试明确 SKIP。
 
 - [ ] **Step 1: 写失败的进程契约测试**
 
@@ -171,7 +175,7 @@ Expected: FAIL。
 
 - [ ] **Step 3: 实现 SDKAdapter/Profile**
 
-业务代码不得 import Harness 内部 core 包，只依赖 SDK 和 adapter 自有类型。
+业务代码不得 import Harness 内部 core 包，只依赖 SDK 和 adapter 自有类型；SDK 创建/接受 Session 后先写 HarnessSessionReference，再进入执行状态。
 
 - [ ] **Step 4: 运行契约与真实 smoke**
 
@@ -181,7 +185,7 @@ Expected: 契约 PASS；无 key 时 smoke = SKIP with reason；有 key 时 PASS�
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/harness-adapter/src/sdk-adapter.ts packages/harness-adapter/src/sdk-adapter.test.ts infra/harness tests/integration/harness-sdk-smoke.test.ts
+git add packages/harness-adapter/src/sdk-adapter.ts packages/harness-adapter/src/sdk-adapter.test.ts packages/application/src/agents/harness-session-reference.ts infra/harness tests/integration/harness-sdk-smoke.test.ts
 git commit -m "feat: integrate DeepSeek Harness SDK"
 ```
 
