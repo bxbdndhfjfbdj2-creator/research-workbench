@@ -154,13 +154,14 @@ git commit -m "feat: add reliable agent dispatch worker"
 - Create: `packages/harness-adapter/src/sdk-adapter.ts`
 - Create: `packages/application/src/agents/harness-session-reference.ts`
 - Create: `infra/harness/workbench.cordis.yml`
+- Create: `infra/harness/version.env`
 - Create: `infra/harness/README.md`
 - Test: `packages/harness-adapter/src/sdk-adapter.test.ts`
 - Test: `tests/integration/harness-sdk-smoke.test.ts`
 
 **Interfaces:**
 - `SdkHarnessAdapter implements HarnessAdapter`。
-- 通过 `@deepseek-ai/dsh-sdk-client` 启动 named profile；workspace cwd 和 env 白名单明确传入。
+- 通过 `@deepseek-ai/dsh-sdk-client` 启动 named profile；显式传入 pinned `dshBin`、workspace cwd 和 env 白名单。`infra/harness/version.env` 固定 Harness source commit/package version，升级只能通过依赖更新 PR。
 - `recordHarnessSessionReference(runId, sessionId, metadata): Promise<HarnessSessionReference>` 在 SDK 接受正式 Session 后立即持久化映射。
 - 运行完成后保留 Harness session id；无 `DEEPSEEK_API_KEY` 时真实 smoke 测试明确 SKIP。
 
