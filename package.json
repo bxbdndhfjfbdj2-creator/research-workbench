@@ -11,7 +11,8 @@
     "typecheck": "tsc -p tsconfig.base.json --noEmit",
     "lint": "tsc -p tsconfig.base.json --noEmit",
     "build": "pnpm --filter @research-workbench/web build && tsc -p tsconfig.base.json --noEmit",
-    "db:migrate:test": "vitest run tests/integration/db-foundation.test.ts"
+    "db:migrate:test": "vitest run tests/integration/db-foundation.test.ts",
+    "bootstrap:team": "tsx scripts/bootstrap-team.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -2,11 +2,35 @@ import type { DatabaseSql } from "@research-workbench/db/src/client";
 
 export type ProjectAction = "read" | "write";
 
+type AccessRow = {
+  organization_role: "lead" | "researcher";
+  membership_id: string | null;
+};
+
 export async function authorizeProjectAccess(
-  _sql: DatabaseSql,
-  _actorId: string,
-  _projectId: string,
+  sql: DatabaseSql,
+  actorId: string,
+  projectId: string,
   _action: ProjectAction,
 ): Promise<void> {
-  throw new Error("authorizeProjectAccess not implemented");
+  const rows = (await sql.unsafe(
+    `select m.organization_role, pm.id as membership_id
+     from members m
+     join research_projects p on p.id = $2
+     join research_portfolios rp on rp.id = p.portfolio_id and rp.team_id = m.team_id
+     left join project_memberships pm
+       on pm.project_id = p.id and pm.member_id = m.id
+     where m.id = $1
+       and m.actor_type = 'human'
+       and m.active = true
+     limit 1`,
+    [actorId, projectId],
+  )) as readonly AccessRow[];
+
+  const access = rows[0];
+  if (!access) throw new Error("Forbidden: actor cannot access this project");
+
+  if (access.organization_role === "lead" || access.membership_id) return;
+
+  throw new Error("Forbidden: actor is not a member of this project");
 }

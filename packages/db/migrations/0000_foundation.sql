@@ -11,11 +11,13 @@ create table if not exists members (
   display_name text not null,
   organization_role text not null,
   actor_type text not null default 'human',
+  auth_user_id text,
   active boolean not null default true,
   created_at timestamptz not null default now(),
   constraint members_actor_type_check check (actor_type in ('human', 'agent', 'system')),
   constraint members_organization_role_check check (organization_role in ('lead', 'researcher')),
-  constraint members_team_email_unique unique (team_id, email)
+  constraint members_team_email_unique unique (team_id, email),
+  constraint members_auth_user_unique unique (auth_user_id)
 );
 -- statement-breakpoint
 create table if not exists research_portfolios (
