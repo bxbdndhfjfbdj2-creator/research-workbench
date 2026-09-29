@@ -10,6 +10,10 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "better-auth": "^1.6.0",
-    "pg": "^8.16.0"
+    "pg": "^8.16.0",
+    "@research-workbench/application": "workspace:*",
+    "@research-workbench/db": "workspace:*",
+    "@research-workbench/domain": "workspace:*",
+    "@research-workbench/ui": "workspace:*"
   }
 }
