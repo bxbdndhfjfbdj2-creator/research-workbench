@@ -397,3 +397,87 @@ drop trigger if exists research_branches_preserve_history on research_branches;
 create trigger research_branches_preserve_history
 before delete on research_branches
 for each row execute function reject_research_branch_delete();
+
+-- statement-breakpoint
+create table if not exists agent_tasks (
+  id text primary key,
+  research_task_id text not null references research_tasks(id) on delete restrict,
+  project_id text not null references research_projects(id) on delete cascade,
+  request jsonb not null,
+  created_by_type text not null,
+  created_by_id text not null,
+  created_at timestamptz not null default now(),
+  constraint agent_tasks_actor_type_check check (created_by_type in ('human', 'system'))
+);
+-- statement-breakpoint
+create table if not exists agent_context_snapshots (
+  id text primary key,
+  project_id text not null references research_projects(id) on delete cascade,
+  research_question_revision_id text references research_node_revisions(id) on delete restrict,
+  theory_revision_id text references research_node_revisions(id) on delete restrict,
+  research_design_revision_id text references research_node_revisions(id) on delete restrict,
+  data_version_ref text,
+  asset_version_refs jsonb not null,
+  git_base_commit text,
+  skill_version_refs jsonb not null,
+  harness_version text not null,
+  harness_profile text not null,
+  runtime_profile text not null,
+  model_route text not null,
+  sandbox_policy text not null,
+  tool_allowlist jsonb not null,
+  subagent_allowlist jsonb not null,
+  execution_metadata jsonb,
+  created_by_type text not null,
+  created_by_id text not null,
+  created_at timestamptz not null default now(),
+  constraint agent_context_snapshots_sandbox_check
+    check (sandbox_policy in ('read-only', 'workspace-write', 'danger-full-access')),
+  constraint agent_context_snapshots_actor_type_check check (created_by_type in ('human', 'system'))
+);
+-- statement-breakpoint
+create table if not exists agent_runs (
+  id text primary key,
+  agent_task_id text not null references agent_tasks(id) on delete restrict,
+  project_id text not null references research_projects(id) on delete cascade,
+  attempt_number integer not null,
+  context_snapshot_id text references agent_context_snapshots(id) on delete restrict,
+  state text not null default '已提议',
+  execution_policy jsonb not null,
+  failure_code text,
+  created_by_type text not null,
+  created_by_id text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint agent_runs_task_attempt_unique unique (agent_task_id, attempt_number),
+  constraint agent_runs_state_check check (
+    state in ('已提议','等待授权','排队','已派发','执行中','等待人工输入','继续执行','完成','失败','取消','被替代')
+  ),
+  constraint agent_runs_actor_type_check check (created_by_type in ('human', 'system')),
+  constraint agent_runs_snapshot_required_check check (
+    state in ('已提议','等待授权','取消','被替代') or context_snapshot_id is not null
+  )
+);
+-- statement-breakpoint
+create table if not exists harness_session_references (
+  id text primary key,
+  run_id text not null references agent_runs(id) on delete restrict,
+  session_id text not null,
+  runtime_profile text not null,
+  harness_version text not null,
+  generation integer not null,
+  created_at timestamptz not null default now(),
+  constraint harness_session_references_run_generation_unique unique (run_id, generation)
+);
+-- statement-breakpoint
+drop trigger if exists agent_context_snapshots_immutable on agent_context_snapshots;
+-- statement-breakpoint
+create trigger agent_context_snapshots_immutable
+before update or delete on agent_context_snapshots
+for each row execute function reject_append_only_record_mutation();
+-- statement-breakpoint
+drop trigger if exists harness_session_references_immutable on harness_session_references;
+-- statement-breakpoint
+create trigger harness_session_references_immutable
+before update or delete on harness_session_references
+for each row execute function reject_append_only_record_mutation();

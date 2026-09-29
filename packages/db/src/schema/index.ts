@@ -9,3 +9,5 @@ export * from "./research-graph";
 export * from "./scientific-decision";
 export * from "./official-revisions";
 export * from "./research-result";
+export * from "./agent-runtime";
+export * from "./harness-session-reference";
