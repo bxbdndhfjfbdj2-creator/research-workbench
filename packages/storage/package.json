@@ -1,0 +1,9 @@
+{
+  "name": "@research-workbench/storage",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.1141.0"
+  }
+}
