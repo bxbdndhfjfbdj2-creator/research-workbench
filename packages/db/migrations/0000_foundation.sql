@@ -72,6 +72,7 @@ create table if not exists outbox_events (
   attempts integer not null default 0,
   available_at timestamptz not null default now(),
   delivered_at timestamptz,
+  claimed_at timestamptz,
   last_error text,
   created_at timestamptz not null default now()
 );

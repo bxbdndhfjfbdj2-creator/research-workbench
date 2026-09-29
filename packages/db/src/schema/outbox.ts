@@ -8,6 +8,7 @@ export const outboxEvents = pgTable("outbox_events", {
   attempts: integer("attempts").notNull().default(0),
   availableAt: timestamp("available_at", { withTimezone: true }).defaultNow().notNull(),
   deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }),
   lastError: text("last_error"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
