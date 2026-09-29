@@ -30,7 +30,7 @@ test("project intelligent work shows tasks, attempts, frozen context and durable
   await login(page, researcher.email, researcher.password);
   await page.goto(`/projects/${researcher.projectId}/agent-work`);
 
-  await expect(page.getByRole("heading", { name: "智能工作" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "智能工作", exact: true })).toBeVisible();
   await expect(page.getByText("失败后重试的智能诊断", { exact: true })).toBeVisible();
   await expect(page.getByText("等待研究者判断的智能诊断", { exact: true })).toBeVisible();
   await expect(page.getByText("已完成的智能诊断", { exact: true })).toBeVisible();
