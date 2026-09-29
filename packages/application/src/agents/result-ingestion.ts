@@ -185,7 +185,7 @@ export async function ingestAgentResult(
        from agent_runs r
        left join agent_context_snapshots s on s.id = r.context_snapshot_id
        where r.id = $1
-       for update`,
+       for update of r`,
       [runId],
     )) as readonly RunContext[];
     const run = rows[0];
