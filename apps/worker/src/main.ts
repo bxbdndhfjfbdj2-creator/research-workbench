@@ -1,4 +1,4 @@
-import PgBoss from "pg-boss";
+import { PgBoss } from "pg-boss";
 import { createDbClient } from "@research-workbench/db/src/client";
 import { runOutboxPass, type OutboxDispatchHandler } from "./outbox-worker";
 
