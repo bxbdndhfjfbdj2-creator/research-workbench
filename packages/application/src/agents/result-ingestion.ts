@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSql } from "@research-workbench/db/src/client";
 import type { JsonValue } from "@research-workbench/domain/src/events";
 import { assertSecretSafe } from "@research-workbench/domain/src/events";
@@ -156,13 +156,16 @@ export async function ingestAgentResult(
   result: HarnessExecutionResult,
 ): Promise<AgentResultIngestion> {
   assertSecretSafe(result as unknown as JsonValue);
+  const resultDigest = createHash("sha256")
+    .update(JSON.stringify(result))
+    .digest("hex");
   if (result.stopReason !== "completed") {
     throw new Error("Agent result ingestion requires a completed Run");
   }
 
   return runInTransaction(sql, async (tx) => {
     const priorRows = await tx.unsafe(
-      `select research_result_id, decision_ids
+      `select research_result_id, decision_ids, result_digest
        from agent_run_ingestions
        where run_id = $1
        limit 1`,
@@ -170,6 +173,9 @@ export async function ingestAgentResult(
     );
     const prior = priorRows[0];
     if (prior) {
+      if (String(prior.result_digest) !== resultDigest) {
+        throw new Error("AgentRun ingestion was already committed with different output");
+      }
       return {
         researchResultId: prior.research_result_id
           ? String(prior.research_result_id)
@@ -234,9 +240,9 @@ export async function ingestAgentResult(
 
     await tx.unsafe(
       `insert into agent_run_ingestions
-        (run_id, research_result_id, decision_ids)
-       values ($1, $2, $3::jsonb)`,
-      [runId, researchResultId, JSON.stringify(decisionIds)],
+        (run_id, research_result_id, decision_ids, result_digest)
+       values ($1, $2, $3::jsonb, $4)`,
+      [runId, researchResultId, JSON.stringify(decisionIds), resultDigest],
     );
 
     await tx.unsafe(

@@ -96,5 +96,6 @@ export const agentRunIngestions = pgTable("agent_run_ingestions", {
   runId: text("run_id").primaryKey().references(() => agentRuns.id, { onDelete: "restrict" }),
   researchResultId: text("research_result_id"),
   decisionIds: jsonb("decision_ids").notNull(),
+  resultDigest: text("result_digest").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });

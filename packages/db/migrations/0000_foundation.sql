@@ -544,6 +544,7 @@ create table if not exists agent_run_ingestions (
   run_id text primary key references agent_runs(id) on delete restrict,
   research_result_id text references research_results(id) on delete restrict,
   decision_ids jsonb not null,
+  result_digest text not null,
   created_at timestamptz not null default now()
 );
 -- statement-breakpoint

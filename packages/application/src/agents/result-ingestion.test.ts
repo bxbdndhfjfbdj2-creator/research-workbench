@@ -6,6 +6,7 @@ import { createAgentTask } from "./create-agent-task";
 import { createAgentRun } from "./create-agent-run";
 import { buildAgentContextSnapshot } from "./context-snapshot";
 import { ingestAgentResult } from "./result-ingestion";
+import type { AgentExecutionPolicy } from "@research-workbench/domain/src/agent-runtime";
 import type { HarnessExecutionResult } from "../../../harness-adapter/src/types";
 import {
   startTestDatabase,
@@ -20,7 +21,9 @@ describe("controlled Agent result ingestion", () => {
   const actor = { type: "human" as const, id: leadId };
   let analysisRevisionId: string;
   let theoryRevisionId: string;
-  let completedRunId: string;
+  let agentTaskId: string;
+  let snapshotId: string;
+  let executionPolicy: AgentExecutionPolicy;
 
   beforeAll(async () => {
     testDb = await startTestDatabase();
@@ -90,6 +93,19 @@ describe("controlled Agent result ingestion", () => {
       { objective: "生成结构化科研结果" },
       actor,
     );
+    agentTaskId = agentTask.id;
+
+    executionPolicy = {
+      gitBaseCommit: "0123456789abcdef0123456789abcdef01234567",
+      skillVersionRefs: [],
+      harnessVersion: "4878cdabd87d4041bdaff61d04c966883b9fd07a",
+      harnessProfile: "sdk",
+      runtimeProfile: "research-execution",
+      modelRoute: "deepseek-official/deepseek-v4-flash",
+      sandboxPolicy: "workspace-write",
+      toolAllowlist: ["read_file"],
+      subagentAllowlist: [],
+    };
     const snapshot = await buildAgentContextSnapshot(
       testDb.client.sql,
       projectId,
@@ -99,45 +115,32 @@ describe("controlled Agent result ingestion", () => {
         researchDesignRevisionId: null,
         dataVersionRef: "data:v3",
         assetVersionRefs: [],
-        gitBaseCommit: "0123456789abcdef0123456789abcdef01234567",
-        skillVersionRefs: [],
-        harnessVersion: "4878cdabd87d4041bdaff61d04c966883b9fd07a",
-        harnessProfile: "sdk",
-        runtimeProfile: "research-execution",
-        modelRoute: "deepseek-official/deepseek-v4-flash",
-        sandboxPolicy: "workspace-write",
-        toolAllowlist: ["read_file"],
-        subagentAllowlist: [],
+        ...executionPolicy,
       },
       actor,
     );
-    const run = await createAgentRun(
-      testDb.client.sql,
-      agentTask.id,
-      {
-        contextSnapshotId: snapshot.id,
-        gitBaseCommit: "0123456789abcdef0123456789abcdef01234567",
-        skillVersionRefs: [],
-        harnessVersion: "4878cdabd87d4041bdaff61d04c966883b9fd07a",
-        harnessProfile: "sdk",
-        runtimeProfile: "research-execution",
-        modelRoute: "deepseek-official/deepseek-v4-flash",
-        sandboxPolicy: "workspace-write",
-        toolAllowlist: ["read_file"],
-        subagentAllowlist: [],
-      },
-      actor,
-    );
-    completedRunId = run.id;
-    await testDb.client.sql.unsafe(
-      "update agent_runs set state = '完成' where id = $1",
-      [completedRunId],
-    );
+    snapshotId = snapshot.id;
   }, 120_000);
 
   afterAll(async () => {
     if (testDb) await stopTestDatabase(testDb);
   });
+
+  async function createRun(completed: boolean): Promise<string> {
+    const run = await createAgentRun(
+      testDb.client.sql,
+      agentTaskId,
+      { ...executionPolicy, contextSnapshotId: snapshotId },
+      actor,
+    );
+    if (completed) {
+      await testDb.client.sql.unsafe(
+        "update agent_runs set state = '完成' where id = $1",
+        [run.id],
+      );
+    }
+    return run.id;
+  }
 
   function baseResult(): HarnessExecutionResult {
     return {
@@ -157,11 +160,8 @@ describe("controlled Agent result ingestion", () => {
   }
 
   it("creates an immutable ResearchResult only for a completed Run", async () => {
-    const result = await ingestAgentResult(
-      testDb.client.sql,
-      completedRunId,
-      baseResult(),
-    );
+    const runId = await createRun(true);
+    const result = await ingestAgentResult(testDb.client.sql, runId, baseResult());
     expect(result.researchResultId).toBeTruthy();
 
     const rows = await testDb.client.sql.unsafe(
@@ -169,13 +169,35 @@ describe("controlled Agent result ingestion", () => {
       [result.researchResultId],
     );
     expect(rows[0]).toMatchObject({
-      run_ref: completedRunId,
+      run_ref: runId,
       data_version_ref: "data:v3",
       analysis_revision_id: analysisRevisionId,
     });
   });
 
+  it("is idempotent for the same completed output and rejects a different replay", async () => {
+    const runId = await createRun(true);
+    const output = baseResult();
+    const first = await ingestAgentResult(testDb.client.sql, runId, output);
+    const second = await ingestAgentResult(testDb.client.sql, runId, output);
+    expect(second).toEqual(first);
+
+    const artifacts = await testDb.client.sql.unsafe(
+      "select id from agent_run_artifacts where run_id = $1",
+      [runId],
+    );
+    expect(artifacts).toHaveLength(2);
+
+    await expect(
+      ingestAgentResult(testDb.client.sql, runId, {
+        ...output,
+        visibleMessageSummary: "不同的重放内容",
+      }),
+    ).rejects.toThrow(/already committed|different output/i);
+  });
+
   it("rejects a code result without an immutable Git commit locator", async () => {
+    const runId = await createRun(true);
     const result = baseResult();
     result.researchResult = {
       ...result.researchResult!,
@@ -183,11 +205,12 @@ describe("controlled Agent result ingestion", () => {
     };
 
     await expect(
-      ingestAgentResult(testDb.client.sql, completedRunId, result),
+      ingestAgentResult(testDb.client.sql, runId, result),
     ).rejects.toThrow(/Git commit|commit/i);
   });
 
   it("maps AI scientific changes to proposed decisions without changing official state", async () => {
+    const runId = await createRun(true);
     const result = baseResult();
     result.researchResult = undefined;
     result.scientificChangeProposals = [
@@ -204,11 +227,7 @@ describe("controlled Agent result ingestion", () => {
       },
     ];
 
-    const ingested = await ingestAgentResult(
-      testDb.client.sql,
-      completedRunId,
-      result,
-    );
+    const ingested = await ingestAgentResult(testDb.client.sql, runId, result);
     expect(ingested.decisionIds).toHaveLength(1);
 
     const decisions = await testDb.client.sql.unsafe(
@@ -229,6 +248,7 @@ describe("controlled Agent result ingestion", () => {
   });
 
   it("rejects secret-shaped output before creating results, decisions or events", async () => {
+    const runId = await createRun(true);
     const beforeEvents = await testDb.client.sql.unsafe(
       "select count(*)::int as count from research_events where project_id = $1",
       [projectId],
@@ -239,7 +259,7 @@ describe("controlled Agent result ingestion", () => {
     } as HarnessExecutionResult;
 
     await expect(
-      ingestAgentResult(testDb.client.sql, completedRunId, unsafe),
+      ingestAgentResult(testDb.client.sql, runId, unsafe),
     ).rejects.toThrow(/Sensitive credential|secret|credential/i);
 
     const afterEvents = await testDb.client.sql.unsafe(
@@ -250,23 +270,9 @@ describe("controlled Agent result ingestion", () => {
   });
 
   it("rejects ingestion when the Run has not completed", async () => {
-    const rows = await testDb.client.sql.unsafe(
-      "select agent_task_id, context_snapshot_id, execution_policy from agent_runs where id = $1",
-      [completedRunId],
-    );
-    const source = rows[0];
-    const retry = await createAgentRun(
-      testDb.client.sql,
-      String(source?.agent_task_id),
-      {
-        ...(source?.execution_policy as any),
-        contextSnapshotId: String(source?.context_snapshot_id),
-      },
-      actor,
-    );
-
+    const runId = await createRun(false);
     await expect(
-      ingestAgentResult(testDb.client.sql, retry.id, baseResult()),
+      ingestAgentResult(testDb.client.sql, runId, baseResult()),
     ).rejects.toThrow(/completed|完成/i);
   });
 });
