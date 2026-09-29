@@ -31,16 +31,24 @@ test("project intelligent work shows tasks, attempts, frozen context and durable
   await page.goto(`/projects/${researcher.projectId}/agent-work`);
 
   await expect(page.getByRole("heading", { name: "智能工作", exact: true })).toBeVisible();
-  await expect(page.getByText("失败后重试的智能诊断", { exact: true })).toBeVisible();
-  await expect(page.getByText("等待研究者判断的智能诊断", { exact: true })).toBeVisible();
-  await expect(page.getByText("已完成的智能诊断", { exact: true })).toBeVisible();
 
-  await expect(page.getByText("等待人工输入", { exact: true })).toBeVisible();
-  await expect(page.getByText("是否继续检验样本构成变化？", { exact: true })).toBeVisible();
-  await expect(page.getByText("session-acceptance-waiting", { exact: true })).toBeVisible();
-  await expect(page.getByText("artifact:agent-summary", { exact: true })).toBeVisible();
-  await expect(page.getByText("样本构成变化解释了主要差异。", { exact: true })).toBeVisible();
-  await expect(page.getByText("4878cdabd87d4041bdaff61d04c966883b9fd07a", { exact: true }).first()).toBeVisible();
+  const failedTask = page.getByTestId("agent-task").filter({ hasText: "失败后重试的智能诊断" });
+  const waitingTask = page.getByTestId("agent-task").filter({ hasText: "等待研究者判断的智能诊断" });
+  const completedTask = page.getByTestId("agent-task").filter({ hasText: "已完成的智能诊断" });
+  await expect(failedTask).toBeVisible();
+  await expect(waitingTask).toBeVisible();
+  await expect(completedTask).toBeVisible();
+
+  const waitingRun = waitingTask.getByTestId("agent-run").first();
+  await expect(waitingRun.locator(".status-label").filter({ hasText: "等待人工输入" })).toBeVisible();
+  await expect(waitingRun.getByText("是否继续检验样本构成变化？", { exact: true })).toBeVisible();
+  await waitingRun.getByText("运行与上下文详情", { exact: true }).click();
+  await expect(waitingRun.getByText("session-acceptance-waiting", { exact: true })).toBeVisible();
+  await expect(waitingRun.getByText("4878cdabd87d4041bdaff61d04c966883b9fd07a", { exact: true })).toBeVisible();
+
+  const completedRun = completedTask.getByTestId("agent-run").first();
+  await expect(completedRun.getByText("artifact:agent-summary", { exact: true })).toBeVisible();
+  await expect(completedRun.getByText("样本构成变化解释了主要差异。", { exact: true })).toBeVisible();
 });
 
 test("retry preserves failed attempt one and creates attempt two", async ({ page }) => {
@@ -81,8 +89,10 @@ test("team intelligent work page exposes the same controlled run facts", async (
   await login(page, environment.lead.email, environment.lead.password);
   await page.goto("/agent-work");
 
-  await expect(page.getByRole("heading", { name: "智能工作中心" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "智能工作中心", exact: true })).toBeVisible();
   await expect(page.getByText("研究项目1", { exact: true })).toBeVisible();
-  await expect(page.getByText("等待人工输入", { exact: true })).toBeVisible();
-  await expect(page.getByText("失败", { exact: true })).toBeVisible();
+  const waitingRun = page.getByTestId("agent-run").filter({ hasText: "等待人工输入" }).first();
+  const failedRun = page.getByTestId("agent-run").filter({ hasText: "失败" }).first();
+  await expect(waitingRun.locator(".status-label").filter({ hasText: "等待人工输入" })).toBeVisible();
+  await expect(failedRun.locator(".status-label").filter({ hasText: "失败" })).toBeVisible();
 });
