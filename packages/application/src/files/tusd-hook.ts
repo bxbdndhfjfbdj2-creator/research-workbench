@@ -9,11 +9,11 @@ import { verifyFileUploadToken } from "./upload-intent";
 export type NormalizedTusHook = {
   type: "pre-create" | "post-finish";
   upload: {
-    id: string;
+    id: string | null;
     size: number;
     offset: number;
     metadata: Record<string, string>;
-    storage: {
+    storage?: {
       type: string;
       bucket: string;
       key: string;
@@ -44,7 +44,22 @@ function requireNonEmpty(value: string, label: string): string {
 }
 
 function validateHookShape(hook: NormalizedTusHook): void {
-  requireNonEmpty(hook.upload.id, "Tus upload id");
+  if (hook.type === "pre-create") {
+    if (hook.upload.id !== null) {
+      throw new Error("Tus pre-create upload id must be null");
+    }
+    if (hook.upload.storage !== undefined) {
+      throw new Error("Tus pre-create storage must be unavailable");
+    }
+  } else if (hook.type === "post-finish") {
+    if (hook.upload.id === null) {
+      throw new Error("Tus post-finish upload id is required");
+    }
+    requireNonEmpty(tusUploadId, "Tus upload id");
+  } else {
+    throw new Error("Unsupported tus hook type");
+  }
+
   if (!Number.isSafeInteger(hook.upload.size) || hook.upload.size <= 0) {
     throw new Error("Tus upload size must be a positive safe integer");
   }
@@ -124,13 +139,17 @@ function assertPostFinishStorage(
   if (hook.upload.offset !== hook.upload.size) {
     throw new Error("Tus upload is incomplete: offset does not equal size");
   }
-  if (hook.upload.storage.type !== "s3store") {
+  const storage = hook.upload.storage;
+  if (!storage) {
+    throw new Error("Tus post-finish storage facts are required");
+  }
+  if (storage.type !== "s3store") {
     throw new Error("Unsupported tus storage type");
   }
-  if (hook.upload.storage.bucket !== policy.quarantineBucket) {
+  if (storage.bucket !== policy.quarantineBucket) {
     throw new Error("Tus upload storage bucket does not match quarantine bucket");
   }
-  const key = hook.upload.storage.key;
+  const key = storage.key;
   if (
     !key.startsWith(policy.quarantinePrefix) ||
     key.length <= policy.quarantinePrefix.length ||
@@ -144,16 +163,16 @@ function sanitizedInboxPayload(hook: NormalizedTusHook): JsonValue {
   return {
     type: hook.type,
     upload: {
-      id: hook.upload.id,
+      id: tusUploadId,
       size: hook.upload.size,
       offset: hook.upload.offset,
       metadata: {
         workbenchUploadId: hook.upload.metadata.workbenchUploadId,
       },
       storage: {
-        type: hook.upload.storage.type,
-        bucket: hook.upload.storage.bucket,
-        key: hook.upload.storage.key,
+        type: storage.type,
+        bucket: storage.bucket,
+        key: storage.key,
       },
     },
   };
@@ -177,17 +196,12 @@ export async function handleTusHook(
     if (!["initiated", "uploading"].includes(intent.state)) {
       throw new Error("Upload intent is not available for pre-create");
     }
-    if (intent.tus_upload_id && intent.tus_upload_id !== hook.upload.id) {
-      throw new Error("Upload intent is already bound to a different tus upload");
-    }
-
     await sql.unsafe(
       `update file_upload_intents
        set state = 'uploading',
-           tus_upload_id = $2,
            updated_at = now()
        where id = $1`,
-      [uploadIntentId, hook.upload.id],
+      [uploadIntentId],
     );
     return { accepted: true };
   }
@@ -200,8 +214,17 @@ export async function handleTusHook(
   if (!["uploading", "uploaded_quarantine"].includes(intent.state)) {
     throw new Error("Upload intent is not available for post-finish");
   }
-  if (intent.tus_upload_id && intent.tus_upload_id !== hook.upload.id) {
+  const tusUploadId = hook.upload.id;
+  if (!tusUploadId) {
+    throw new Error("Tus post-finish upload id is required");
+  }
+  if (intent.tus_upload_id && intent.tus_upload_id !== tusUploadId) {
     throw new Error("Tus upload id does not match upload intent");
+  }
+
+  const storage = hook.upload.storage;
+  if (!storage) {
+    throw new Error("Tus post-finish storage facts are required");
   }
 
   return runInTransaction(sql, async (tx) => {
@@ -213,7 +236,7 @@ export async function handleTusHook(
        returning id`,
       [
         proposedInboxId,
-        `${hook.upload.id}:post-finish`,
+        `${tusUploadId}:post-finish`,
         JSON.stringify(sanitizedInboxPayload(hook)),
       ],
     );
@@ -224,7 +247,7 @@ export async function handleTusHook(
          from integration_inbox
          where provider = 'tusd' and external_id = $1
          limit 1`,
-        [`${hook.upload.id}:post-finish`],
+        [`${tusUploadId}:post-finish`],
       );
       const existingId = existing[0]?.id;
       if (!existingId) {
@@ -243,9 +266,9 @@ export async function handleTusHook(
        where id = $1`,
       [
         uploadIntentId,
-        hook.upload.id,
-        hook.upload.storage.bucket,
-        hook.upload.storage.key,
+        tusUploadId,
+        storage.bucket,
+        storage.key,
       ],
     );
 
@@ -256,7 +279,7 @@ export async function handleTusHook(
       actor: { type: "human", id: intent.created_by },
       payload: {
         uploadIntentId,
-        tusUploadId: hook.upload.id,
+        tusUploadId: tusUploadId,
       },
     });
 
@@ -265,7 +288,7 @@ export async function handleTusHook(
       eventType: "file.upload.completed",
       payload: {
         uploadIntentId,
-        tusUploadId: hook.upload.id,
+        tusUploadId: tusUploadId,
       },
     });
 
