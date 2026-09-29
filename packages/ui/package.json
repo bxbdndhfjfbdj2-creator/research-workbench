@@ -1,0 +1,14 @@
+{
+  "name": "@research-workbench/ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.tsx"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "main": "./src/index.tsx",
+  "types": "./src/index.tsx"
+}
