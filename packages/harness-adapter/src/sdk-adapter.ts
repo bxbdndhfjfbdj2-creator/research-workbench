@@ -13,6 +13,8 @@ import type {
   HarnessToolFact,
 } from "./types";
 
+export type SdkEnvironment = Record<string, string | undefined>;
+
 export type SdkRuntimeFactoryOptions = {
   dshBin: string;
   profile: string;
@@ -20,7 +22,7 @@ export type SdkRuntimeFactoryOptions = {
   dshHome: string;
   cwd: string;
   processCwd: string;
-  env: NodeJS.ProcessEnv;
+  env: SdkEnvironment;
   provider: string;
   model: string;
 };
@@ -62,7 +64,7 @@ export type SdkHarnessAdapterOptions = {
   pinnedHarnessVersion: string;
   allowedEnvironmentNames: string[];
   allowDangerFullAccess?: boolean;
-  processEnv?: NodeJS.ProcessEnv;
+  processEnv?: SdkEnvironment;
   runtimeFactory?: (options: SdkRuntimeFactoryOptions) => SdkRuntime;
   recordSessionReference: (reference: SessionReferenceInput) => Promise<void>;
   resolveSessionReference?: (
@@ -89,7 +91,10 @@ const VISIBLE_STOP_REASONS = new Set<HarnessStopReason>([
 function defaultRuntimeFactory(
   options: SdkRuntimeFactoryOptions,
 ): SdkRuntime {
-  const harness = new DeepSeekHarness(options);
+  const harness = new DeepSeekHarness({
+    ...options,
+    env: options.env as NodeJS.ProcessEnv,
+  });
   return {
     start: () => harness.start(),
     run: async (input, runOptions) => {
@@ -461,7 +466,7 @@ export class SdkHarnessAdapter implements HarnessAdapter {
     const requestedEnvironmentNames =
       request.envAllowlist ?? this.options.allowedEnvironmentNames;
     const sourceEnv = this.options.processEnv ?? process.env;
-    const env: NodeJS.ProcessEnv = {};
+    const env: SdkEnvironment = {};
 
     for (const name of requestedEnvironmentNames) {
       const value = sourceEnv[name];
