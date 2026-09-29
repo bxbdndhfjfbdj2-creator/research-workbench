@@ -87,3 +87,17 @@ create table if not exists integration_inbox (
   received_at timestamptz not null default now(),
   constraint integration_inbox_provider_external_unique unique (provider, external_id)
 );
+-- statement-breakpoint
+create table if not exists research_tasks (
+  id text primary key,
+  project_id text not null references research_projects(id) on delete cascade,
+  title text not null,
+  description text,
+  status text not null default 'open',
+  assignee_member_id text references members(id),
+  created_by text not null references members(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint research_tasks_status_check
+    check (status in ('open', 'in_progress', 'blocked', 'completed', 'cancelled'))
+);
