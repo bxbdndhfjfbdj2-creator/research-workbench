@@ -250,6 +250,21 @@ export async function answerHumanInteraction(
   answer: JsonValue,
   actor: ActorRef,
 ): Promise<void> {
+  if (actor.type !== "human") {
+    throw new Error("Only a human may answer a pending Agent interaction");
+  }
+  const accessRows = await sql.unsafe(
+    `select r.project_id
+     from agent_human_interactions i
+     join agent_runs r on r.id = i.run_id
+     where i.id = $1
+     limit 1`,
+    [interactionId],
+  );
+  const access = accessRows[0];
+  if (!access) throw new Error("Human interaction not found");
+  await authorizeProjectAccess(sql, actor.id, String(access.project_id), "read");
+
   return runInTransaction(sql, async (tx) => {
     const rows = await tx.unsafe(
       `select i.run_id, i.kind, i.state, r.project_id
@@ -264,11 +279,7 @@ export async function answerHumanInteraction(
     if (interaction.state !== "pending") {
       throw new Error("Human interaction was already answered");
     }
-    if (actor.type !== "human") {
-      throw new Error("Only a human may answer a pending Agent interaction");
-    }
 
-    await authorizeProjectAccess(tx, actor.id, String(interaction.project_id), "read");
     validateInteractionAnswer(interaction.kind as HumanInteractionKind, answer);
 
     const updated = await tx.unsafe(
