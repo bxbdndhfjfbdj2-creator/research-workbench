@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { authorizeProjectAccess } from "@research-workbench/application/src/auth/authorize";
 import { createDbClient } from "@research-workbench/db/src/client";
+import { RESEARCH_DIMENSIONS } from "@research-workbench/domain/src/research-dimensions";
 import { getWorkbenchAuth } from "../auth";
 
 export type CurrentMember = {
@@ -83,10 +84,20 @@ async function loadStates(
      order by updated_at desc, dimension asc`,
     [projectId],
   );
-  return rows.map((row) => ({
-    dimension: String(row.dimension),
-    state: String(row.state),
-  }));
+  const dimensionOrder = new Map(
+    RESEARCH_DIMENSIONS.map((dimension, index) => [dimension, index]),
+  );
+
+  return rows
+    .map((row) => ({
+      dimension: String(row.dimension),
+      state: String(row.state),
+    }))
+    .sort(
+      (left, right) =>
+        (dimensionOrder.get(left.dimension as (typeof RESEARCH_DIMENSIONS)[number]) ?? 999) -
+        (dimensionOrder.get(right.dimension as (typeof RESEARCH_DIMENSIONS)[number]) ?? 999),
+    );
 }
 
 export async function listVisibleProjects(
