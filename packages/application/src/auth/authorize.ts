@@ -5,16 +5,20 @@ export type ProjectAction = "read" | "write";
 type AccessRow = {
   organization_role: "lead" | "researcher";
   membership_id: string | null;
+  membership_role: string | null;
 };
 
 export async function authorizeProjectAccess(
   sql: DatabaseSql,
   actorId: string,
   projectId: string,
-  _action: ProjectAction,
+  action: ProjectAction,
 ): Promise<void> {
   const rows = (await sql.unsafe(
-    `select m.organization_role, pm.id as membership_id
+    `select
+       m.organization_role,
+       pm.id as membership_id,
+       pm.role as membership_role
      from members m
      join research_projects p on p.id = $2
      join research_portfolios rp on rp.id = p.portfolio_id and rp.team_id = m.team_id
@@ -30,7 +34,13 @@ export async function authorizeProjectAccess(
   const access = rows[0];
   if (!access) throw new Error("Forbidden: actor cannot access this project");
 
-  if (access.organization_role === "lead" || access.membership_id) return;
+  if (access.organization_role === "lead") return;
+  if (!access.membership_id) {
+    throw new Error("Forbidden: actor is not a member of this project");
+  }
 
-  throw new Error("Forbidden: actor is not a member of this project");
+  if (action === "read") return;
+  if (access.membership_role === "lead") return;
+
+  throw new Error("Forbidden: only the team lead or project lead may modify formal project state");
 }
