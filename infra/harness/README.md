@@ -44,3 +44,13 @@ AgentContextSnapshot, ResearchEvent, or HarnessSessionReference.
 `tests/integration/harness-sdk-smoke.test.ts` always validates durable session
 reference generation. The real Harness smoke case is skipped unless both
 `DEEPSEEK_API_KEY` and `RW_DSH_BIN` are present.
+
+## Supply-chain age-policy exception
+
+The repository keeps pnpm's minimum-release-age protection. The reviewed
+Harness RC was published less than the default age window before this phase was
+implemented, and the SDK transitively resolves many packages in the same
+release train. Therefore `pnpm-workspace.yaml` excludes only the
+`@deepseek-ai/*` namespace from the age gate. This is not a floating trust
+exception: the frozen lockfile and `version.env` pin the exact release, and any
+future Harness dependency change still requires a lockfile diff and review.
