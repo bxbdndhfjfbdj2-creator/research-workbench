@@ -194,7 +194,7 @@ export async function createFileUploadIntent(
       input.declaredMediaType?.trim() || null,
       input.changeSummary?.trim() || null,
       actor.id,
-      expiresAt,
+      expiresAt.toISOString(),
     ],
   );
 
