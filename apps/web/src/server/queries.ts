@@ -447,7 +447,7 @@ function summaryFromJson(value: unknown): string {
 async function loadDecisionItems(
   member: CurrentMember,
   whereSql: string,
-  params: unknown[],
+  params: string[],
 ): Promise<DecisionCenterItem[]> {
   const db = webDb();
   const rows = await db.sql.unsafe(
