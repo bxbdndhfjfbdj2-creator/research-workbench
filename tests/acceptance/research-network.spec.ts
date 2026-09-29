@@ -32,8 +32,12 @@ test("research network preserves competing and failed routes", async ({ page }) 
   await page.goto(`/projects/${researcher.projectId}/network`);
 
   await expect(page.getByRole("heading", { name: "研究网络" })).toBeVisible();
-  await expect(page.getByText("竞争机制 A", { exact: true })).toBeVisible();
-  await expect(page.getByText("竞争机制 B", { exact: true })).toBeVisible();
+  await expect(
+    page.getByTestId("research-node").filter({ hasText: "竞争机制 A" }),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId("research-node").filter({ hasText: "竞争机制 B" }),
+  ).toBeVisible();
   await expect(page.getByText("挑战", { exact: true })).toBeVisible();
   await expect(page.getByText("候选", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("已否定", { exact: true })).toBeVisible();
