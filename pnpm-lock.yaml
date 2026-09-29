@@ -113,6 +113,8 @@ importers:
         specifier: 0.2.0-rc.1
         version: 0.2.0-rc.1(8cb4bb70dba55aed373742575f3aa31c)
 
+
+  packages/harness-bridge-plugin: {}
   packages/queue:
     dependencies:
       '@research-workbench/db':

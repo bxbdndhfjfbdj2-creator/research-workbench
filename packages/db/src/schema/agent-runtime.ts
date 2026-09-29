@@ -55,3 +55,31 @@ export const agentRuns = pgTable(
     unique("agent_runs_task_attempt_unique").on(table.agentTaskId, table.attemptNumber),
   ],
 );
+
+export const agentCallbackCredentials = pgTable("agent_callback_credentials", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull().references(() => agentRuns.id, { onDelete: "restrict" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const agentHumanInteractions = pgTable(
+  "agent_human_interactions",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id").notNull().references(() => agentRuns.id, { onDelete: "restrict" }),
+    kind: text("kind").notNull(),
+    payload: jsonb("payload").notNull(),
+    nonce: text("nonce").notNull(),
+    credentialRef: text("credential_ref").notNull().references(() => agentCallbackCredentials.id, { onDelete: "restrict" }),
+    state: text("state").notNull().default("pending"),
+    answer: jsonb("answer"),
+    answeredByMemberId: text("answered_by_member_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+  },
+  (table) => [
+    unique("agent_human_interactions_run_nonce_unique").on(table.runId, table.nonce),
+  ],
+);

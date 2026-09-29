@@ -481,3 +481,42 @@ drop trigger if exists harness_session_references_immutable on harness_session_r
 create trigger harness_session_references_immutable
 before update or delete on harness_session_references
 for each row execute function reject_append_only_record_mutation();
+
+-- statement-breakpoint
+create table if not exists agent_callback_credentials (
+  id text primary key,
+  run_id text not null references agent_runs(id) on delete restrict,
+  expires_at timestamptz not null,
+  revoked_at timestamptz,
+  created_at timestamptz not null default now()
+);
+-- statement-breakpoint
+create table if not exists agent_human_interactions (
+  id text primary key,
+  run_id text not null references agent_runs(id) on delete restrict,
+  kind text not null,
+  payload jsonb not null,
+  nonce text not null,
+  credential_ref text not null references agent_callback_credentials(id) on delete restrict,
+  state text not null default 'pending',
+  answer jsonb,
+  answered_by_member_id text references members(id) on delete restrict,
+  created_at timestamptz not null default now(),
+  answered_at timestamptz,
+  constraint agent_human_interactions_kind_check check (kind in ('question','approval')),
+  constraint agent_human_interactions_state_check check (state in ('pending','answered','cancelled')),
+  constraint agent_human_interactions_run_nonce_unique unique (run_id, nonce),
+  constraint agent_human_interactions_answer_shape_check check (
+    (state = 'pending' and answer is null and answered_by_member_id is null and answered_at is null)
+    or
+    (state = 'answered' and answer is not null and answered_by_member_id is not null and answered_at is not null)
+    or
+    (state = 'cancelled')
+  )
+);
+-- statement-breakpoint
+drop trigger if exists agent_callback_credentials_immutable on agent_callback_credentials;
+-- statement-breakpoint
+create trigger agent_callback_credentials_immutable
+before delete on agent_callback_credentials
+for each row execute function reject_append_only_record_mutation();
