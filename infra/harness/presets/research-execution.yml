@@ -1,0 +1,40 @@
+# Optional coding-subagent overlay for Research Workbench AgentRuns.
+# Provider registration is independent from model-facing tool exposure.
+# The deployment must preinstall the selected provider bundle into the same
+# dsh profile home. Both providers stay disabled unless the frozen Run
+# subagent allowlist names them.
+
+- insert:
+    - id: subagent-codex
+      name: '@deepseek-ai/dsh-subagent-codex'
+      disabled: !!js "!JSON.parse(process.env.RW_SUBAGENT_ALLOWLIST ?? '[]').includes('codex')"
+      config:
+        providerName: codex
+        permissionMode: never
+        env: {}
+
+    - id: tool-subagent-codex
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: !!js "!JSON.parse(process.env.RW_SUBAGENT_ALLOWLIST ?? '[]').includes('codex')"
+      config:
+        provider: codex
+        toolName: subagent_codex
+        backgroundMode: one-shot
+        maxDepth: provider-managed
+
+    - id: subagent-claude-code
+      name: '@deepseek-ai/dsh-subagent-claude-code'
+      disabled: !!js "!JSON.parse(process.env.RW_SUBAGENT_ALLOWLIST ?? '[]').includes('claude-code')"
+      config:
+        providerName: claude-code
+        permissionMode: dontAsk
+        env: {}
+
+    - id: tool-subagent-claude-code
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: !!js "!JSON.parse(process.env.RW_SUBAGENT_ALLOWLIST ?? '[]').includes('claude-code')"
+      config:
+        provider: claude-code
+        toolName: subagent_claude_code
+        backgroundMode: one-shot
+        maxDepth: provider-managed

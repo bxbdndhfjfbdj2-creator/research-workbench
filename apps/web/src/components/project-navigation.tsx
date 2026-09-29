@@ -5,7 +5,7 @@ const ITEMS = [
   { label: "研究网络", segment: "/network" },
   { label: "证据与结果", segment: "/evidence" },
   { label: "科学决策", segment: "/decisions" },
-  { label: "智能工作", segment: null },
+  { label: "智能工作", segment: "/agent-work" },
   { label: "项目资产", segment: null },
 ] as const;
 

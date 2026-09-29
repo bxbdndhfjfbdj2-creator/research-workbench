@@ -127,3 +127,45 @@ form button { border: 0; border-radius: 8px; padding: 11px 14px; background: #17
 .official-revision-row:last-child, .official-history-row:last-child { border-bottom: 0; }
 .official-revision-row span, .official-history-row span { color: #687079; font-size: 12px; }
 .official-revision-row small, .official-history-row small { color: #818890; }
+
+.agent-work-section { margin-top: 24px; }
+.agent-work-section > h3 { margin: 0 0 12px; }
+.agent-task-list, .agent-run-list, .agent-work-center { display: grid; gap: 14px; }
+.agent-task-card {
+  background: #fff; border: 1px solid #e1e4e8; border-radius: 14px; padding: 20px;
+  box-shadow: 0 6px 20px rgba(17, 19, 21, .04);
+}
+.agent-task-heading, .agent-run-heading, .agent-project-heading {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+}
+.agent-task-heading h3, .agent-project-heading h3 { margin: 5px 0 0; }
+.task-output { color: #5f6670; margin: 12px 0 0; }
+.agent-run-list { margin-top: 16px; }
+.agent-run-card { border: 1px solid #e6e9ec; border-radius: 12px; padding: 16px; background: #fbfcfd; }
+.run-failure { margin: 10px 0 0; color: #7a3030; font-size: 13px; }
+.run-artifacts, .run-result, .human-interaction {
+  margin-top: 12px; border-radius: 10px; padding: 12px; background: #f1f4f6;
+  display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; font-size: 13px;
+}
+.human-interaction { display: block; background: #fff8e8; border: 1px solid #efe0b6; }
+.human-interaction p { margin: 8px 0; }
+.run-details { margin-top: 12px; }
+.run-details summary { cursor: pointer; color: #4e5660; font-size: 13px; }
+.run-details dl { display: grid; gap: 7px; margin: 12px 0 0; }
+.run-details dl div { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 10px; }
+.run-details dt { color: #747b84; font-size: 12px; }
+.run-details dd { margin: 0; overflow-wrap: anywhere; }
+.run-retry-form, .inline-action-form, .agent-create-form { margin-top: 12px; }
+.run-retry-form { display: block; }
+.run-retry-form button, .inline-action-form button { width: auto; padding: 8px 12px; }
+.inline-action-form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.inline-action-form label { min-width: 220px; }
+.inline-action-form .secondary-action { background: #e4e8eb; color: #30363d; }
+.agent-create-form { grid-template-columns: minmax(180px, 1fr) minmax(220px, 2fr) minmax(220px, 2fr) auto; align-items: end; }
+.agent-create-form select { border: 1px solid #cfd4da; border-radius: 8px; padding: 10px 12px; background: #fff; }
+.agent-project-section { display: grid; gap: 12px; }
+.agent-project-heading { align-items: center; }
+.agent-project-heading a { color: #4f5964; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 900px) {
+  .agent-create-form { grid-template-columns: 1fr; }
+}

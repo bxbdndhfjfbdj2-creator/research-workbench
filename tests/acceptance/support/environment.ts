@@ -18,6 +18,16 @@ import { linkResultEvidence } from "../../../packages/application/src/results/li
 import { createScientificDecision } from "../../../packages/application/src/decisions/create-decision";
 import { reviewScientificDecision } from "../../../packages/application/src/decisions/review-decision";
 import { proposeOfficialRevisionChange } from "../../../packages/application/src/research-graph/official-revision";
+import { createResearchTask } from "../../../packages/application/src/tasks/research-task-service";
+import { createAgentTask } from "../../../packages/application/src/agents/create-agent-task";
+import { createAgentRun } from "../../../packages/application/src/agents/create-agent-run";
+import { buildAgentContextSnapshot } from "../../../packages/application/src/agents/context-snapshot";
+import { recordHarnessSessionReference } from "../../../packages/application/src/agents/harness-session-reference";
+import {
+  issueAgentCallbackCredential,
+  requestHumanInteraction,
+} from "../../../packages/application/src/agents/human-interaction";
+import { ingestAgentResult } from "../../../packages/application/src/agents/result-ingestion";
 import {
   createDbClient,
   initializeFoundationDatabase,
@@ -40,6 +50,13 @@ export type AcceptanceEnvironment = {
     decisionId: string;
     oldRevisionId: string;
     newRevisionId: string;
+  };
+  agentWork: {
+    projectId: string;
+    researchTaskId: string;
+    failedRunId: string;
+    waitingRunId: string;
+    completedRunId: string;
   };
   stop: () => Promise<void>;
 };
@@ -78,6 +95,13 @@ async function seedBusinessData(
     decisionId: string;
     oldRevisionId: string;
     newRevisionId: string;
+  };
+  agentWork: {
+    projectId: string;
+    researchTaskId: string;
+    failedRunId: string;
+    waitingRunId: string;
+    completedRunId: string;
   };
 }> {
   await initializeFoundationDatabase(db.sql);
@@ -315,6 +339,163 @@ async function seedBusinessData(
     { type: "agent", id: "theory-agent" },
   );
 
+  const agentResearchTask = await createResearchTask(
+    db.sql,
+    primaryResearcher.projectId,
+    { title: "智能分析科研事项" },
+    graphActor,
+  );
+  const agentSnapshot = await buildAgentContextSnapshot(
+    db.sql,
+    primaryResearcher.projectId,
+    {
+      researchQuestionRevisionId: null,
+      theoryRevisionId: oldTheoryRevision.id,
+      researchDesignRevisionId: null,
+      dataVersionRef: "data:v1",
+      assetVersionRefs: [],
+      gitBaseCommit: "0123456789abcdef0123456789abcdef01234567",
+      skillVersionRefs: ["skill:diagnostic@1"],
+      harnessVersion: "4878cdabd87d4041bdaff61d04c966883b9fd07a",
+      harnessProfile: "sdk",
+      runtimeProfile: "research-execution",
+      modelRoute: "deepseek-official/deepseek-v4-flash",
+      sandboxPolicy: "read-only",
+      toolAllowlist: ["read_file", "search_files"],
+      subagentAllowlist: [],
+    },
+    graphActor,
+  );
+  const agentPolicy = {
+    contextSnapshotId: agentSnapshot.id,
+    gitBaseCommit: "0123456789abcdef0123456789abcdef01234567",
+    skillVersionRefs: ["skill:diagnostic@1"],
+    harnessVersion: "4878cdabd87d4041bdaff61d04c966883b9fd07a",
+    harnessProfile: "sdk",
+    runtimeProfile: "research-execution",
+    modelRoute: "deepseek-official/deepseek-v4-flash",
+    sandboxPolicy: "read-only" as const,
+    toolAllowlist: ["read_file", "search_files"],
+    subagentAllowlist: [],
+  };
+
+  const failedAgentTask = await createAgentTask(
+    db.sql,
+    agentResearchTask.id,
+    { objective: "失败后重试的智能诊断", expectedOutput: "诊断摘要" },
+    graphActor,
+  );
+  const failedRun = await createAgentRun(
+    db.sql,
+    failedAgentTask.id,
+    agentPolicy,
+    graphActor,
+  );
+  await db.sql.unsafe(
+    "update agent_runs set state = '失败', failure_code = 'TEST_FAILURE' where id = $1",
+    [failedRun.id],
+  );
+  await recordHarnessSessionReference(
+    db.sql,
+    failedRun.id,
+    "session-acceptance-failed",
+    {
+      runtimeProfile: "research-execution",
+      harnessVersion: "4878cdabd87d4041bdaff61d04c966883b9fd07a",
+    },
+  );
+
+  const waitingAgentTask = await createAgentTask(
+    db.sql,
+    agentResearchTask.id,
+    { objective: "等待研究者判断的智能诊断", expectedOutput: "待确认诊断" },
+    graphActor,
+  );
+  const waitingRun = await createAgentRun(
+    db.sql,
+    waitingAgentTask.id,
+    agentPolicy,
+    graphActor,
+  );
+  await db.sql.unsafe(
+    "update agent_runs set state = '执行中' where id = $1",
+    [waitingRun.id],
+  );
+  await recordHarnessSessionReference(
+    db.sql,
+    waitingRun.id,
+    "session-acceptance-waiting",
+    {
+      runtimeProfile: "research-execution",
+      harnessVersion: "4878cdabd87d4041bdaff61d04c966883b9fd07a",
+    },
+  );
+  const callback = await issueAgentCallbackCredential(
+    db.sql,
+    waitingRun.id,
+    "acceptance-agent-callback-signing-secret",
+    3600,
+  );
+  await requestHumanInteraction(db.sql, {
+    runId: waitingRun.id,
+    kind: "question",
+    payload: {
+      questions: [
+        {
+          id: "confirm-anomaly",
+          question: "是否继续检验样本构成变化？",
+          options: [{ label: "继续" }, { label: "暂缓" }],
+        },
+      ],
+    },
+    nonce: "acceptance-waiting-question",
+    credentialRef: callback.credentialRef,
+  });
+
+  const completedAgentTask = await createAgentTask(
+    db.sql,
+    agentResearchTask.id,
+    { objective: "已完成的智能诊断", expectedOutput: "诊断与结果" },
+    graphActor,
+  );
+  const completedRun = await createAgentRun(
+    db.sql,
+    completedAgentTask.id,
+    agentPolicy,
+    graphActor,
+  );
+  await db.sql.unsafe(
+    "update agent_runs set state = '完成' where id = $1",
+    [completedRun.id],
+  );
+  await recordHarnessSessionReference(
+    db.sql,
+    completedRun.id,
+    "session-acceptance-completed",
+    {
+      runtimeProfile: "research-execution",
+      harnessVersion: "4878cdabd87d4041bdaff61d04c966883b9fd07a",
+    },
+  );
+  await ingestAgentResult(db.sql, completedRun.id, {
+    visibleMessageSummary: "样本构成变化解释了主要差异。",
+    toolFacts: [{ tool: "read_file", summary: "读取冻结分析输入" }],
+    artifactRefs: ["artifact:agent-summary"],
+    githubHints: [],
+    scientificChangeProposals: [],
+    stopReason: "completed",
+    researchResult: {
+      dataVersionRef: "data:v1",
+      analysisRevisionId: analysisRevision.id,
+      executionKind: "code",
+      outputRefs: ["artifact:agent-summary"],
+      gitCommit: {
+        repositoryFullName: "example/research-project",
+        sha: "0123456789abcdef0123456789abcdef01234567",
+      },
+    },
+  });
+
   return {
     lead,
     researchers,
@@ -323,6 +504,13 @@ async function seedBusinessData(
       decisionId: aiDecision.id,
       oldRevisionId: oldTheoryRevision.id,
       newRevisionId: newTheoryRevision.id,
+    },
+    agentWork: {
+      projectId: primaryResearcher.projectId,
+      researchTaskId: agentResearchTask.id,
+      failedRunId: failedRun.id,
+      waitingRunId: waitingRun.id,
+      completedRunId: completedRun.id,
     },
   };
 }

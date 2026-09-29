@@ -8,9 +8,9 @@ import type {
 import { authorizeProjectAccess } from "../auth/authorize";
 import { appendResearchEvent } from "../events/append-research-event";
 import { enqueueOutbox } from "../outbox/enqueue-outbox";
-import { runInTransaction } from "../transactions";
+import { runInTransaction, type TransactionSql } from "../transactions";
 
-function validateGitLocator(input: CreateResearchResultInput): void {
+export function validateGitLocator(input: CreateResearchResultInput): void {
   if (input.executionKind !== "code") return;
   if (!input.gitCommit) {
     throw new Error("Code research results require a Git commit locator");
@@ -32,15 +32,38 @@ async function authorizeResultCreation(sql: DatabaseSql, projectId: string, acto
   if (rows.length === 0) throw new Error("Research project not found");
 }
 
-export async function createResearchResult(
-  sql: DatabaseSql,
+function mapResearchResultRow(row: Record<string, unknown>): ResearchResult {
+  return {
+    id: String(row.id),
+    projectId: String(row.project_id),
+    dataVersionRef: String(row.data_version_ref),
+    analysisRevisionId: String(row.analysis_revision_id),
+    executionKind: row.execution_kind as ResearchResult["executionKind"],
+    runRef: String(row.run_ref),
+    outputRefs: row.output_refs as string[],
+    gitCommit:
+      row.git_repository_full_name && row.git_commit_sha
+        ? {
+            repositoryFullName: String(row.git_repository_full_name),
+            sha: String(row.git_commit_sha),
+          }
+        : undefined,
+    createdBy: {
+      type: row.created_by_type as ActorRef["type"],
+      id: String(row.created_by_id),
+    },
+    createdAt: row.created_at as Date,
+  };
+}
+
+export async function createResearchResultInTransaction(
+  tx: TransactionSql,
   input: CreateResearchResultInput,
   actor: ActorRef,
 ): Promise<ResearchResult> {
   validateGitLocator(input);
-  await authorizeResultCreation(sql, input.projectId, actor);
 
-  const revisionRows = await sql.unsafe(
+  const revisionRows = await tx.unsafe(
     `select 1
      from research_node_revisions r
      join research_nodes n on n.id = r.node_id
@@ -52,69 +75,62 @@ export async function createResearchResult(
     throw new Error("Analysis revision does not belong to the research project");
   }
 
-  return runInTransaction(sql, async (tx) => {
-    const id = randomUUID();
-    const rows = await tx.unsafe(
-      `insert into research_results
-        (id, project_id, data_version_ref, analysis_revision_id, execution_kind,
-         run_ref, output_refs, git_repository_full_name, git_commit_sha,
-         created_by_type, created_by_id)
-       values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11)
-       returning *`,
-      [
-        id,
-        input.projectId,
-        input.dataVersionRef,
-        input.analysisRevisionId,
-        input.executionKind,
-        input.runRef,
-        JSON.stringify(input.outputRefs),
-        input.gitCommit?.repositoryFullName ?? null,
-        input.gitCommit?.sha ?? null,
-        actor.type,
-        actor.id,
-      ],
-    );
+  const id = randomUUID();
+  const rows = await tx.unsafe(
+    `insert into research_results
+      (id, project_id, data_version_ref, analysis_revision_id, execution_kind,
+       run_ref, output_refs, git_repository_full_name, git_commit_sha,
+       created_by_type, created_by_id)
+     values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11)
+     returning *`,
+    [
+      id,
+      input.projectId,
+      input.dataVersionRef,
+      input.analysisRevisionId,
+      input.executionKind,
+      input.runRef,
+      JSON.stringify(input.outputRefs),
+      input.gitCommit?.repositoryFullName ?? null,
+      input.gitCommit?.sha ?? null,
+      actor.type,
+      actor.id,
+    ],
+  );
 
-    await appendResearchEvent(tx, {
-      id: randomUUID(),
-      projectId: input.projectId,
-      eventType: "RESEARCH_RESULT_CREATED",
-      actor,
-      payload: {
-        resultId: id,
-        dataVersionRef: input.dataVersionRef,
-        analysisRevisionId: input.analysisRevisionId,
-        executionKind: input.executionKind,
-      },
-    });
-    await enqueueOutbox(tx, {
-      id: randomUUID(),
-      eventType: "research.result.created",
-      payload: { projectId: input.projectId, resultId: id },
-    });
-
-    const row = rows[0];
-    if (!row) throw new Error("Research result insert returned no row");
-    return {
-      id: String(row.id),
-      projectId: String(row.project_id),
-      dataVersionRef: String(row.data_version_ref),
-      analysisRevisionId: String(row.analysis_revision_id),
-      executionKind: row.execution_kind as ResearchResult["executionKind"],
-      runRef: String(row.run_ref),
-      outputRefs: row.output_refs as string[],
-      gitCommit:
-        row.git_repository_full_name && row.git_commit_sha
-          ? {
-              repositoryFullName: String(row.git_repository_full_name),
-              sha: String(row.git_commit_sha),
-            }
-          : undefined,
-      createdBy: { type: row.created_by_type as ActorRef["type"], id: String(row.created_by_id) },
-      createdAt: row.created_at as Date,
-    };
+  await appendResearchEvent(tx, {
+    id: randomUUID(),
+    projectId: input.projectId,
+    eventType: "RESEARCH_RESULT_CREATED",
+    actor,
+    payload: {
+      resultId: id,
+      dataVersionRef: input.dataVersionRef,
+      analysisRevisionId: input.analysisRevisionId,
+      executionKind: input.executionKind,
+    },
   });
+  await enqueueOutbox(tx, {
+    id: randomUUID(),
+    eventType: "research.result.created",
+    payload: { projectId: input.projectId, resultId: id },
+  });
+
+  const row = rows[0];
+  if (!row) throw new Error("Research result insert returned no row");
+  return mapResearchResultRow(row as Record<string, unknown>);
+}
+
+export async function createResearchResult(
+  sql: DatabaseSql,
+  input: CreateResearchResultInput,
+  actor: ActorRef,
+): Promise<ResearchResult> {
+  validateGitLocator(input);
+  await authorizeResultCreation(sql, input.projectId, actor);
+  return runInTransaction(sql, (tx) =>
+    createResearchResultInTransaction(tx, input, actor),
+  );
 }
 
 export async function supersedeResearchResult(
