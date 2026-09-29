@@ -119,7 +119,6 @@ describe("completed upload processing", () => {
       version_number: 1,
       original_filename: "paper.pdf",
       media_type: "application/pdf",
-      byte_size: source.byteLength,
       sha256,
       source_kind: "upload",
       scan_status: "passed",
@@ -128,6 +127,7 @@ describe("completed upload processing", () => {
       storage_key: `ready/${sha256.slice(0, 2)}/${sha256}`,
       quarantine_state: "ready",
     });
+    expect(Number(versions[0]?.byte_size)).toBe(source.byteLength);
     expect(versions[0]?.current_version_id).toBe(versions[0]?.id);
 
     const processing = await testDb.client.sql.unsafe(
