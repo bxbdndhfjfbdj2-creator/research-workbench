@@ -54,3 +54,18 @@ release train. Therefore `pnpm-workspace.yaml` excludes only the
 `@deepseek-ai/*` namespace from the age gate. This is not a floating trust
 exception: the frozen lockfile and `version.env` pin the exact release, and any
 future Harness dependency change still requires a lockfile diff and review.
+
+## Native build allowlist
+
+The workspace keeps pnpm build-script approval explicit. For the pinned Harness
+runtime, only the native/process packages required by the reviewed subprocess
+stack are allowed to run install scripts:
+
+- `@deepseek-ai/dsh-subprocess-local` — restores the executable bit on the
+  pinned node-pty spawn helper.
+- `node-pty` — provides Harness terminal/PTY support.
+- `koffi` — provides native process/FFI support used by the subprocess layer.
+
+`@google/genai` is explicitly denied because the Research Workbench runtime
+uses the DeepSeek route in this phase and does not need the Google provider's
+install hook. No wildcard build-script permission is enabled.
