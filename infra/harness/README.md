@@ -69,3 +69,29 @@ stack are allowed to run install scripts:
 `@google/genai` is explicitly denied because the Research Workbench runtime
 uses the DeepSeek route in this phase and does not need the Google provider's
 install hook. No wildcard build-script permission is enabled.
+
+## Coding subagent providers
+
+`infra/harness/presets/research-execution.yml` defines optional Codex and Claude
+Code provider/tool rows. Registration alone does not grant model access: a Run
+must freeze `codex` or `claude-code` in its `subagentAllowlist`, and the
+adapter exports that exact list through `RW_SUBAGENT_ALLOWLIST`.
+
+The dedicated Harness profile home must preinstall the provider bundle used by
+the deployment, for example:
+
+`dsh plugin --profile sdk add @deepseek-ai/dsh-subagent-codex`
+
+or
+
+`dsh plugin --profile sdk add @deepseek-ai/dsh-subagent-claude-code`
+
+The Workbench preset fixes Codex to `permissionMode: never` and Claude Code to
+`permissionMode: dontAsk`. It never selects either product's bypass mode. The
+parent Run remains confined by the Workbench-selected Harness sandbox.
+
+The real smoke test is intentionally conditional. It runs only when
+`RW_CODE_SUBAGENT=codex|claude-code` and `RW_DSH_BIN` are present; otherwise it
+is reported as skipped. A configured provider that fails authentication,
+startup, delegation, or workspace mutation fails the test rather than being
+converted to a synthetic success.

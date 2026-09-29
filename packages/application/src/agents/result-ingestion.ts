@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { DatabaseSql } from "@research-workbench/db/src/client";
 import type { JsonValue } from "@research-workbench/domain/src/events";
 import { assertSecretSafe } from "@research-workbench/domain/src/events";
@@ -10,6 +11,8 @@ import {
 import type { AgentResearchResultOutput } from "@research-workbench/domain/src/agent-output";
 import type { HarnessExecutionResult } from "../../../harness-adapter/src/types";
 import { createScientificDecision } from "../decisions/create-decision";
+import { appendResearchEvent } from "../events/append-research-event";
+import { runInTransaction } from "../transactions";
 import { createResearchResult } from "../results/create-result";
 
 export type AgentResultIngestion = {
@@ -106,6 +109,49 @@ function decisionFrom(
   };
 }
 
+async function persistRunArtifacts(
+  sql: DatabaseSql,
+  runId: string,
+  projectId: string,
+  result: HarnessExecutionResult,
+): Promise<void> {
+  const rows: Array<{ kind: string; payload: JsonValue }> = [
+    {
+      kind: "visible_summary",
+      payload: { summary: result.visibleMessageSummary },
+    },
+    ...result.toolFacts.map((fact) => ({
+      kind: "tool_fact",
+      payload: { tool: fact.tool, summary: fact.summary } as JsonValue,
+    })),
+    ...result.artifactRefs.map((ref) => ({
+      kind: "artifact_ref",
+      payload: { ref } as JsonValue,
+    })),
+    ...result.githubHints.map((hint) => ({
+      kind: "github_hint",
+      payload: { kind: hint.kind, value: hint.value } as JsonValue,
+    })),
+  ];
+
+  await runInTransaction(sql, async (tx) => {
+    for (const row of rows) {
+      await tx.unsafe(
+        `insert into agent_run_artifacts (id, run_id, kind, payload)
+         values ($1, $2, $3, $4::jsonb)`,
+        [randomUUID(), runId, row.kind, JSON.stringify(row.payload)],
+      );
+    }
+    await appendResearchEvent(tx, {
+      id: randomUUID(),
+      projectId,
+      eventType: "AGENT_RUN_ARTIFACTS_RECORDED",
+      actor: { type: "system", id: "agent-result-ingestion" },
+      payload: { agentRunId: runId, count: rows.length },
+    });
+  });
+}
+
 export async function ingestAgentResult(
   sql: DatabaseSql,
   runId: string,
@@ -131,6 +177,8 @@ export async function ingestAgentResult(
   const decisions = result.scientificChangeProposals.map((proposal) =>
     decisionFrom(run.project_id, proposal),
   );
+
+  await persistRunArtifacts(sql, runId, run.project_id, result);
 
   const agentActor = { type: "agent" as const, id: `agent-run:${runId}` };
   let researchResultId: string | null = null;

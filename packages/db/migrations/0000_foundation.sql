@@ -520,3 +520,21 @@ drop trigger if exists agent_callback_credentials_immutable on agent_callback_cr
 create trigger agent_callback_credentials_immutable
 before delete on agent_callback_credentials
 for each row execute function reject_append_only_record_mutation();
+
+-- statement-breakpoint
+create table if not exists agent_run_artifacts (
+  id text primary key,
+  run_id text not null references agent_runs(id) on delete restrict,
+  kind text not null,
+  payload jsonb not null,
+  created_at timestamptz not null default now(),
+  constraint agent_run_artifacts_kind_check check (
+    kind in ('visible_summary','tool_fact','artifact_ref','github_hint')
+  )
+);
+-- statement-breakpoint
+drop trigger if exists agent_run_artifacts_immutable on agent_run_artifacts;
+-- statement-breakpoint
+create trigger agent_run_artifacts_immutable
+before update or delete on agent_run_artifacts
+for each row execute function reject_append_only_record_mutation();

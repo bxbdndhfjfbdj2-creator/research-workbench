@@ -83,3 +83,11 @@ export const agentHumanInteractions = pgTable(
     unique("agent_human_interactions_run_nonce_unique").on(table.runId, table.nonce),
   ],
 );
+
+export const agentRunArtifacts = pgTable("agent_run_artifacts", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull().references(() => agentRuns.id, { onDelete: "restrict" }),
+  kind: text("kind").notNull(),
+  payload: jsonb("payload").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
