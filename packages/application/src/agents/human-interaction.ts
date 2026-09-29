@@ -89,7 +89,7 @@ export async function issueAgentCallbackCredential(
       `insert into agent_callback_credentials
         (id, run_id, expires_at)
        values ($1, $2, $3)`,
-      [credentialRef, runId, expiresAt],
+      [credentialRef, runId, expiresAt.toISOString()],
     );
     await appendResearchEvent(tx, {
       id: randomUUID(),
