@@ -170,10 +170,14 @@ export async function startAcceptanceEnvironment(): Promise<AcceptanceEnvironmen
 
     let output = "";
     child.stdout?.on("data", (chunk) => {
-      output += String(chunk);
+      const text = String(chunk);
+      output += text;
+      process.stdout.write(`[next] ${text}`);
     });
     child.stderr?.on("data", (chunk) => {
-      output += String(chunk);
+      const text = String(chunk);
+      output += text;
+      process.stderr.write(`[next] ${text}`);
     });
 
     try {
