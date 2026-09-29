@@ -122,6 +122,7 @@ async function loadExecutionRequest(
     researchTaskId: row.research_task_id,
     agentTaskId: row.agent_task_id,
     runId: row.run_id,
+    taskRequest: row.request,
     snapshot,
     cwd: taskString(row.request, "cwd") ?? `/workspace/${row.project_id}`,
     toolAllowlist: snapshot.toolAllowlist,

@@ -22,6 +22,7 @@ export type HarnessExecutionRequest = {
   researchTaskId: string;
   agentTaskId: string;
   runId: string;
+  taskRequest: JsonValue;
   snapshot: AgentContextSnapshot;
   cwd: string;
   toolAllowlist: string[];

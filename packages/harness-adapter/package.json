@@ -1,0 +1,9 @@
+{
+  "name": "@research-workbench/harness-adapter",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "dependencies": {
+    "@deepseek-ai/dsh-sdk-client": "0.2.0-rc.1"
+  }
+}

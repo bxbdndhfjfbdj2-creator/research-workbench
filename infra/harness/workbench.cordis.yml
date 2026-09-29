@@ -1,0 +1,37 @@
+# Research Workbench launch patch for the shipped DeepSeek Harness sdk profile.
+# The adapter injects DSH_PERMISSION_MODE and the two JSON allowlists per Run.
+# Scientific governance remains in Research Workbench; this patch only narrows
+# execution capabilities inside Harness.
+
+- id: tool-bash
+  disabled: !!js "process.platform === 'win32' || !JSON.parse(process.env.RW_TOOL_ALLOWLIST ?? '[]').includes('bash')"
+
+- id: tool-pwsh
+  disabled: !!js "process.platform !== 'win32' || !JSON.parse(process.env.RW_TOOL_ALLOWLIST ?? '[]').includes('powershell')"
+
+- id: tool-fs
+  disabled: !!js "!JSON.parse(process.env.RW_TOOL_ALLOWLIST ?? '[]').includes('read_file') && !JSON.parse(process.env.RW_TOOL_ALLOWLIST ?? '[]').includes('write_file') && !JSON.parse(process.env.RW_TOOL_ALLOWLIST ?? '[]').includes('edit_file')"
+
+- id: tool-fs-search
+  disabled: !!js "!JSON.parse(process.env.RW_TOOL_ALLOWLIST ?? '[]').includes('search_files')"
+
+- id: tool-web
+  disabled: !!js "!JSON.parse(process.env.RW_TOOL_ALLOWLIST ?? '[]').includes('web_search') && !JSON.parse(process.env.RW_TOOL_ALLOWLIST ?? '[]').includes('web_fetch')"
+
+- id: tool-workflow
+  disabled: !!js "!JSON.parse(process.env.RW_TOOL_ALLOWLIST ?? '[]').includes('workflow')"
+
+- id: tool-subagent
+  disabled: !!js "!JSON.parse(process.env.RW_SUBAGENT_ALLOWLIST ?? '[]').includes('spawn')"
+
+- id: tool-subagent-fork
+  disabled: !!js "!JSON.parse(process.env.RW_SUBAGENT_ALLOWLIST ?? '[]').includes('fork')"
+
+- id: tool-subagent-control
+  disabled: !!js "JSON.parse(process.env.RW_SUBAGENT_ALLOWLIST ?? '[]').length === 0"
+
+- id: tool-subagent-list-agents
+  disabled: !!js "JSON.parse(process.env.RW_SUBAGENT_ALLOWLIST ?? '[]').length === 0"
+
+- id: tool-jobs
+  disabled: !!js "JSON.parse(process.env.RW_SUBAGENT_ALLOWLIST ?? '[]').length === 0 && !JSON.parse(process.env.RW_TOOL_ALLOWLIST ?? '[]').includes('workflow')"

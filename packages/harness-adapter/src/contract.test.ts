@@ -20,6 +20,10 @@ const request: HarnessExecutionRequest = {
   researchTaskId: "research-task-1",
   agentTaskId: "agent-task-1",
   runId: "run-1",
+  taskRequest: {
+    objective: "分析研究异常",
+    expectedOutput: "结构化摘要",
+  },
   snapshot: {
     id: "snapshot-1",
     projectId: "project-1",
