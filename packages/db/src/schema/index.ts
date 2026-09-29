@@ -6,3 +6,5 @@ export * from "./outbox";
 export * from "./integration-inbox";
 export * from "./research-task";
 export * from "./research-graph";
+export * from "./scientific-decision";
+export * from "./official-revisions";

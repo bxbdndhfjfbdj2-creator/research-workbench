@@ -191,3 +191,94 @@ drop trigger if exists research_node_revisions_immutable on research_node_revisi
 create trigger research_node_revisions_immutable
 before update or delete on research_node_revisions
 for each row execute function reject_research_node_revision_mutation();
+
+-- statement-breakpoint
+create table if not exists scientific_decisions (
+  id text primary key,
+  project_id text not null references research_projects(id) on delete cascade,
+  level text not null,
+  title text not null,
+  reason text not null,
+  evidence jsonb not null,
+  impact jsonb not null,
+  change_kind text not null,
+  target_slot text,
+  target_revision_id text references research_node_revisions(id) on delete restrict,
+  status text not null default 'proposed',
+  proposed_by_type text not null,
+  proposed_by_id text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  decided_at timestamptz,
+  constraint scientific_decisions_level_check check (level in ('general', 'major')),
+  constraint scientific_decisions_status_check check (status in ('proposed', 'awaiting_lead', 'needs_evidence', 'approved', 'rejected')),
+  constraint scientific_decisions_change_kind_check check (change_kind in ('record_only', 'official_revision')),
+  constraint scientific_decisions_actor_type_check check (proposed_by_type in ('human', 'agent', 'system')),
+  constraint scientific_decisions_official_target_check check (
+    (change_kind = 'record_only' and target_slot is null and target_revision_id is null)
+    or
+    (change_kind = 'official_revision' and level = 'major' and target_slot is not null and target_revision_id is not null)
+  )
+);
+-- statement-breakpoint
+create table if not exists decision_reviews (
+  id text primary key,
+  decision_id text not null references scientific_decisions(id) on delete cascade,
+  stage text not null,
+  action text not null,
+  reviewer_member_id text not null references members(id) on delete restrict,
+  created_at timestamptz not null default now(),
+  constraint decision_reviews_stage_check check (stage in ('project_lead', 'team_lead')),
+  constraint decision_reviews_action_check check (action in ('approve', 'reject', 'request_evidence'))
+);
+-- statement-breakpoint
+create table if not exists official_revisions (
+  id text primary key,
+  project_id text not null references research_projects(id) on delete cascade,
+  slot text not null,
+  revision_id text not null references research_node_revisions(id) on delete restrict,
+  decision_id text not null references scientific_decisions(id) on delete restrict,
+  updated_at timestamptz not null default now(),
+  constraint official_revisions_project_slot_unique unique (project_id, slot)
+);
+-- statement-breakpoint
+create table if not exists official_revision_history (
+  id text primary key,
+  project_id text not null references research_projects(id) on delete cascade,
+  slot text not null,
+  revision_id text not null references research_node_revisions(id) on delete restrict,
+  decision_id text not null references scientific_decisions(id) on delete restrict,
+  changed_at timestamptz not null default now(),
+  constraint official_revision_history_decision_unique unique (decision_id)
+);
+-- statement-breakpoint
+create or replace function validate_official_revision_change()
+returns trigger
+language plpgsql
+as $$
+begin
+  if TG_OP = 'DELETE' then
+    raise exception 'official revisions can only change through an approved scientific decision';
+  end if;
+
+  if not exists (
+    select 1
+    from scientific_decisions d
+    where d.id = NEW.decision_id
+      and d.status = 'approved'
+      and d.project_id = NEW.project_id
+      and d.change_kind = 'official_revision'
+      and d.target_slot = NEW.slot
+      and d.target_revision_id = NEW.revision_id
+  ) then
+    raise exception 'official revision change requires a matching approved scientific decision';
+  end if;
+  return NEW;
+end;
+$$;
+-- statement-breakpoint
+drop trigger if exists official_revisions_decision_lock on official_revisions;
+-- statement-breakpoint
+create trigger official_revisions_decision_lock
+before insert or update or delete on official_revisions
+for each row execute function validate_official_revision_change();
