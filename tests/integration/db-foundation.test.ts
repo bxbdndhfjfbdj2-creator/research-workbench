@@ -76,4 +76,23 @@ describe("foundation database", () => {
   it("does not expose update or delete methods for research events", () => {
     expect(Object.keys(researchEventRepository).sort()).toEqual(["listByProject"]);
   });
+
+  it("enforces research events as append-only at the database boundary", async () => {
+    await testDb.client.sql`
+      insert into research_events (id, project_id, event_type, actor_type, actor_id, payload)
+      values ('immutable-event', null, 'TEST_EVENT', 'system', 'test-suite', '{}'::jsonb)
+    `;
+
+    await expect(
+      testDb.client.sql`
+        update research_events set event_type = 'MUTATED_EVENT' where id = 'immutable-event'
+      `,
+    ).rejects.toThrow(/append|immutable/i);
+
+    await expect(
+      testDb.client.sql`
+        delete from research_events where id = 'immutable-event'
+      `,
+    ).rejects.toThrow(/append|immutable/i);
+  });
 });

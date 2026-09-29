@@ -43,6 +43,30 @@ describe("internal six-member authentication policy", () => {
     ).rejects.toThrow(/six|6|capacity/i);
   });
 
+  it("rejects a second active team lead", async () => {
+    await testDb.client.sql.unsafe(
+      "insert into teams (id, name) values ('single-lead-team', 'Single Lead Team')",
+    );
+
+    await createInternalMember(testDb.client.sql, {
+      id: "single-lead-1",
+      teamId: "single-lead-team",
+      email: "lead1@single.test",
+      displayName: "Lead One",
+      organizationRole: "lead",
+    });
+
+    await expect(
+      createInternalMember(testDb.client.sql, {
+        id: "single-lead-2",
+        teamId: "single-lead-team",
+        email: "lead2@single.test",
+        displayName: "Lead Two",
+        organizationRole: "lead",
+      }),
+    ).rejects.toThrow(/lead|负责人|unique/i);
+  });
+
   it("disables public email/password sign-up at the auth server", () => {
     expect(createWorkbenchAuthOptions()).toMatchObject({
       emailAndPassword: {

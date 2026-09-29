@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   claimOutboxBatch,
   markOutboxDelivered,
+  markOutboxFailed,
 } from "../../packages/queue/src/outbox-dispatcher";
 import { initializeFoundationDatabase } from "../../packages/db/src/client";
 import {
@@ -62,5 +63,21 @@ describe("outbox retry after worker crash", () => {
     ]);
 
     expect([...left, ...right].filter((row) => row.id === "race-outbox")).toHaveLength(1);
+  });
+  it("does not persist arbitrary secret-bearing dispatch error text", async () => {
+    await testDb.client.sql.unsafe(
+      "insert into outbox_events (id, event_type, payload) values ('safe-error-outbox', 'test.event', '{}'::jsonb)",
+    );
+
+    await markOutboxFailed(
+      testDb.client.sql,
+      "safe-error-outbox",
+      new Error("Authorization token=super-secret-token-value"),
+    );
+
+    const rows = await testDb.client.sql.unsafe(
+      "select last_error from outbox_events where id = 'safe-error-outbox'",
+    );
+    expect(String(rows[0]?.last_error ?? "")).not.toContain("super-secret-token-value");
   });
 });
