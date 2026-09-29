@@ -342,3 +342,58 @@ drop trigger if exists research_results_immutable on research_results;
 create trigger research_results_immutable
 before update or delete on research_results
 for each row execute function reject_research_result_mutation();
+
+-- statement-breakpoint
+create or replace function reject_append_only_record_mutation()
+returns trigger
+language plpgsql
+as $$
+begin
+  raise exception 'append-only history is immutable';
+end;
+$$;
+-- statement-breakpoint
+drop trigger if exists research_branch_history_immutable on research_branch_history;
+-- statement-breakpoint
+create trigger research_branch_history_immutable
+before update or delete on research_branch_history
+for each row execute function reject_append_only_record_mutation();
+-- statement-breakpoint
+drop trigger if exists official_revision_history_immutable on official_revision_history;
+-- statement-breakpoint
+create trigger official_revision_history_immutable
+before update or delete on official_revision_history
+for each row execute function reject_append_only_record_mutation();
+-- statement-breakpoint
+drop trigger if exists decision_reviews_immutable on decision_reviews;
+-- statement-breakpoint
+create trigger decision_reviews_immutable
+before update or delete on decision_reviews
+for each row execute function reject_append_only_record_mutation();
+-- statement-breakpoint
+drop trigger if exists research_result_supersessions_immutable on research_result_supersessions;
+-- statement-breakpoint
+create trigger research_result_supersessions_immutable
+before update or delete on research_result_supersessions
+for each row execute function reject_append_only_record_mutation();
+-- statement-breakpoint
+drop trigger if exists research_result_evidence_links_immutable on research_result_evidence_links;
+-- statement-breakpoint
+create trigger research_result_evidence_links_immutable
+before update or delete on research_result_evidence_links
+for each row execute function reject_append_only_record_mutation();
+-- statement-breakpoint
+create or replace function reject_research_branch_delete()
+returns trigger
+language plpgsql
+as $$
+begin
+  raise exception 'research branches preserve history and cannot be deleted';
+end;
+$$;
+-- statement-breakpoint
+drop trigger if exists research_branches_preserve_history on research_branches;
+-- statement-breakpoint
+create trigger research_branches_preserve_history
+before delete on research_branches
+for each row execute function reject_research_branch_delete();
