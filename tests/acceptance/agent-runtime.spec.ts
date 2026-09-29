@@ -83,6 +83,9 @@ test("researcher can create a new AgentTask from a research task without choosin
   await expect(task).toBeVisible();
   await expect(task.getByText("尝试 1", { exact: true })).toBeVisible();
   await expect(task.getByText("已提议", { exact: true })).toBeVisible();
+
+  await task.getByRole("button", { name: "授权并排队" }).click();
+  await expect(task.getByText("排队", { exact: true })).toBeVisible();
 });
 
 test("team intelligent work page exposes the same controlled run facts", async ({ page }) => {
