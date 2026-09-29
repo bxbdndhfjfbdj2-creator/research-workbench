@@ -35,5 +35,5 @@ jobs:
         run: pnpm build
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
-      - name: Phase one browser acceptance
+      - name: Browser acceptance
         run: pnpm acceptance

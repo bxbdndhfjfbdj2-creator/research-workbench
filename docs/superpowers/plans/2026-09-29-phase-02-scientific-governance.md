@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-29-research-workbench-design.md`
 
+**实施状态：** 自动化实现、阶段级审查与验证已完成；等待第二阶段人工验收。该阶段分支以第一阶段已验证头提交为基线，第一阶段未合并前不进入后续阶段合并。
+
 ## Global Constraints
 
 - 旧 revision/result/branch 不因未采用而删除。
@@ -45,25 +47,25 @@
 - `closeResearchBranch(branchId, reason, actor): Promise<void>`
 - `reopenResearchBranch(branchId, actor): Promise<void>`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 覆盖：revision 不可覆盖；edge 可形成 A→B→A；关闭分支后仍可读取终止原因；重开分支新增事件而不是覆盖旧终止记录。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `pnpm vitest run tests/integration/research-graph.test.ts`  
 Expected: FAIL，因为 research graph schema/service 尚不存在。
 
-- [ ] **Step 3: 实现 schema 和服务**
+- [x] **Step 3: 实现 schema 和服务**
 
 节点类型、关系类型逐字使用规格中的枚举；写操作同步追加对应 ResearchEvent。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `pnpm vitest run tests/integration/research-graph.test.ts`  
 Expected: PASS。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/db/src/schema/research-graph.ts packages/domain/src/research-graph.ts packages/application/src/research-graph tests/integration/research-graph.test.ts
@@ -82,25 +84,25 @@ git commit -m "feat: add nonlinear research graph"
 - `proposeOfficialRevisionChange(input): Promise<ScientificDecision>`
 - 内部方法 `applyApprovedOfficialRevisionChange(tx, decisionId): Promise<void>` 仅由决策状态机调用，不导出到普通 UI/Agent API。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 覆盖：human 也不能绕过 decision 直接切换重大 slot；AI proposal 不改 pointer；旧 pointer 可回读。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `pnpm vitest run packages/application/src/research-graph/official-revision.test.ts`  
 Expected: FAIL。
 
-- [ ] **Step 3: 实现 pointer/read API 与内部 mutation**
+- [x] **Step 3: 实现 pointer/read API 与内部 mutation**
 
 正式指针改变必须同时写 `OFFICIAL_REVISION_CHANGED`；外部代码不能直接调用内部 mutation。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `pnpm vitest run packages/application/src/research-graph/official-revision.test.ts`  
 Expected: PASS。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/db/src/schema/official-revisions.ts packages/application/src/research-graph/official-revision.ts packages/application/src/research-graph/official-revision.test.ts
@@ -124,25 +126,25 @@ git commit -m "feat: gate official research revisions"
 - `DecisionLevel = 'general'|'major'`。
 - AI actor 只能创建 proposal，decision 永远从 `proposed` 开始。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 覆盖：一般决策主理人批准即完成；重大决策主理人批准后进入 `awaiting_lead`；lead 批准后才应用；AI review 被拒绝；并发 review 只应用一次。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `pnpm vitest run packages/application/src/decisions/decision-state-machine.test.ts tests/integration/decision-concurrency.test.ts`  
 Expected: FAIL。
 
-- [ ] **Step 3: 实现状态机**
+- [x] **Step 3: 实现状态机**
 
 重大决策只有 lead final approval 后调用 Task 2 的 internal mutation。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `pnpm vitest run packages/application/src/decisions/decision-state-machine.test.ts tests/integration/decision-concurrency.test.ts`  
 Expected: PASS。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/db/src/schema/scientific-decision.ts packages/domain/src/scientific-decision.ts packages/application/src/decisions tests/integration/decision-concurrency.test.ts
@@ -164,25 +166,25 @@ git commit -m "feat: add scientific decision lock"
 - 结果至少保存 dataVersionRef、analysisRevisionId、runRef、outputRefs。
 - `GitCommitLocator = { repositoryFullName: string; sha: string }` 定义在 `packages/domain/src/research-result.ts`；代码型结果在第四阶段 GitHubReference 可用前先保存不可变 locator，第四阶段再验证并建立 GitHubReference。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 覆盖：创建后不能 update；supersedes 不删除旧 result；`executionKind='code'` 的正式结果缺少 `GitCommitLocator` 时拒绝。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `pnpm vitest run tests/integration/research-result-immutability.test.ts`  
 Expected: FAIL。
 
-- [ ] **Step 3: 实现 schema/service**
+- [x] **Step 3: 实现 schema/service**
 
 不提供 update/delete 正式结果的 application API。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `pnpm vitest run tests/integration/research-result-immutability.test.ts`  
 Expected: PASS。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/db/src/schema/research-result.ts packages/domain/src/research-result.ts packages/application/src/results tests/integration/research-result-immutability.test.ts
@@ -201,25 +203,25 @@ git commit -m "feat: add immutable research results"
 - 研究网络展示节点、revision 状态、edge、branch；明确标识“正式/候选/已否定/已关闭”。
 - 失败分支仍可浏览；不提供删除失败路线按钮。
 
-- [ ] **Step 1: 写 Playwright 失败测试**
+- [x] **Step 1: 写 Playwright 失败测试**
 
 构造两条竞争机制和一条已关闭分支，断言 UI 均可查看且关闭分支仍显示终止原因。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `pnpm playwright test tests/acceptance/research-network.spec.ts`  
 Expected: FAIL。
 
-- [ ] **Step 3: 实现网络和证据页面**
+- [x] **Step 3: 实现网络和证据页面**
 
 图形可视化第一版只要求可理解和可点击，不加入自动布局编辑器等规格外复杂能力。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `pnpm playwright test tests/acceptance/research-network.spec.ts`  
 Expected: PASS。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web/app/(app)/projects/[projectId]/network apps/web/app/(app)/projects/[projectId]/evidence apps/web/src/components/research-graph tests/acceptance/research-network.spec.ts
@@ -239,25 +241,25 @@ git commit -m "feat: visualize research graph and evidence"
 - 总负责人看到等待 final approval 的重大决策。
 - UI 展示触发原因、证据、影响、已有 reviews；按钮权限来自 server authorization，不只靠前端隐藏。
 
-- [ ] **Step 1: 写 E2E 失败测试**
+- [x] **Step 1: 写 E2E 失败测试**
 
 AI proposal → 主理人 approve → pointer 不变 → lead approve → pointer 变化；旧 revision 仍可见。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `pnpm playwright test tests/acceptance/scientific-decision-lock.spec.ts`  
 Expected: FAIL。
 
-- [ ] **Step 3: 实现 UI/server actions**
+- [x] **Step 3: 实现 UI/server actions**
 
 所有 mutation 走阶段一 authorization + Task 3 state machine。
 
-- [ ] **Step 4: 阶段验证**
+- [x] **Step 4: 阶段验证**
 
 Run: `pnpm typecheck && pnpm lint && pnpm test && pnpm playwright test tests/acceptance/scientific-decision-lock.spec.ts tests/acceptance/research-network.spec.ts`  
 Expected: PASS。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web/app/(app)/decisions apps/web/app/(app)/projects/[projectId]/decisions apps/web/src/components/decisions tests/acceptance/scientific-decision-lock.spec.ts
