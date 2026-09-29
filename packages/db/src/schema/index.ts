@@ -5,3 +5,4 @@ export * from "./research-event";
 export * from "./outbox";
 export * from "./integration-inbox";
 export * from "./research-task";
+export * from "./research-graph";

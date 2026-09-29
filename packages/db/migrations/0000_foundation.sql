@@ -121,3 +121,73 @@ drop trigger if exists research_events_append_only on research_events;
 create trigger research_events_append_only
 before update or delete on research_events
 for each row execute function reject_research_event_mutation();
+
+-- statement-breakpoint
+create table if not exists research_nodes (
+  id text primary key,
+  project_id text not null references research_projects(id) on delete cascade,
+  type text not null,
+  title text not null,
+  created_at timestamptz not null default now()
+);
+-- statement-breakpoint
+create table if not exists research_node_revisions (
+  id text primary key,
+  node_id text not null references research_nodes(id) on delete cascade,
+  revision_number integer not null,
+  content jsonb not null,
+  status text not null,
+  created_by_type text not null,
+  created_by_id text not null,
+  created_at timestamptz not null default now(),
+  constraint research_node_revisions_node_number_unique unique (node_id, revision_number),
+  constraint research_node_revisions_status_check check (status in ('候选', '正式', '已否定')),
+  constraint research_node_revisions_actor_type_check check (created_by_type in ('human', 'agent', 'system'))
+);
+-- statement-breakpoint
+create table if not exists research_edges (
+  id text primary key,
+  project_id text not null references research_projects(id) on delete cascade,
+  from_node_id text not null references research_nodes(id) on delete cascade,
+  to_node_id text not null references research_nodes(id) on delete cascade,
+  relation text not null,
+  created_at timestamptz not null default now()
+);
+-- statement-breakpoint
+create table if not exists research_branches (
+  id text primary key,
+  project_id text not null references research_projects(id) on delete cascade,
+  name text not null,
+  origin_node_id text not null references research_nodes(id) on delete restrict,
+  status text not null default 'open',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint research_branches_status_check check (status in ('open', 'closed'))
+);
+-- statement-breakpoint
+create table if not exists research_branch_history (
+  id text primary key,
+  branch_id text not null references research_branches(id) on delete cascade,
+  action text not null,
+  reason text,
+  actor_type text not null,
+  actor_id text not null,
+  created_at timestamptz not null default now(),
+  constraint research_branch_history_action_check check (action in ('created', 'closed', 'reopened')),
+  constraint research_branch_history_actor_type_check check (actor_type in ('human', 'agent', 'system'))
+);
+-- statement-breakpoint
+create or replace function reject_research_node_revision_mutation()
+returns trigger
+language plpgsql
+as $$
+begin
+  raise exception 'research_node_revisions are immutable and append-only';
+end;
+$$;
+-- statement-breakpoint
+drop trigger if exists research_node_revisions_immutable on research_node_revisions;
+-- statement-breakpoint
+create trigger research_node_revisions_immutable
+before update or delete on research_node_revisions
+for each row execute function reject_research_node_revision_mutation();
