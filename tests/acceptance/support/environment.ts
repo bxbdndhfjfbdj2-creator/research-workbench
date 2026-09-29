@@ -5,6 +5,20 @@ import { createInternalMember } from "../../../packages/application/src/auth/cre
 import { createProject } from "../../../packages/application/src/projects/create-project";
 import { setDimensionState } from "../../../packages/application/src/projects/set-dimension-state";
 import {
+  createResearchNode,
+  createNodeRevision,
+  linkResearchNodes,
+} from "../../../packages/application/src/research-graph/node-service";
+import {
+  createResearchBranch,
+  closeResearchBranch,
+} from "../../../packages/application/src/research-graph/branch-service";
+import { createResearchResult } from "../../../packages/application/src/results/create-result";
+import { linkResultEvidence } from "../../../packages/application/src/results/link-evidence";
+import { createScientificDecision } from "../../../packages/application/src/decisions/create-decision";
+import { reviewScientificDecision } from "../../../packages/application/src/decisions/review-decision";
+import { proposeOfficialRevisionChange } from "../../../packages/application/src/research-graph/official-revision";
+import {
   createDbClient,
   initializeFoundationDatabase,
   type DbClient,
@@ -21,6 +35,12 @@ type AcceptanceUser = {
 export type AcceptanceEnvironment = {
   lead: AcceptanceUser;
   researchers: AcceptanceUser[];
+  scientificDecision: {
+    projectId: string;
+    decisionId: string;
+    oldRevisionId: string;
+    newRevisionId: string;
+  };
   stop: () => Promise<void>;
 };
 
@@ -50,7 +70,16 @@ async function seedBusinessData(
   db: DbClient,
   databaseUrl: string,
   authSecret: string,
-): Promise<{ lead: AcceptanceUser; researchers: AcceptanceUser[] }> {
+): Promise<{
+  lead: AcceptanceUser;
+  researchers: AcceptanceUser[];
+  scientificDecision: {
+    projectId: string;
+    decisionId: string;
+    oldRevisionId: string;
+    newRevisionId: string;
+  };
+}> {
   await initializeFoundationDatabase(db.sql);
   const bootstrapAuth = createWorkbenchAuth(databaseUrl, authSecret, {
     allowAdministrativeBootstrap: true,
@@ -137,7 +166,165 @@ async function seedBusinessData(
     );
   }
 
-  return { lead, researchers };
+  const primaryResearcher = researchers[0];
+  if (!primaryResearcher?.projectId) throw new Error("Primary acceptance project missing");
+
+  const graphActor = { type: "human" as const, id: primaryResearcher.id };
+  const mechanismA = await createResearchNode(
+    db.sql,
+    primaryResearcher.projectId,
+    "机制",
+    "竞争机制 A",
+    graphActor,
+  );
+  const mechanismB = await createResearchNode(
+    db.sql,
+    primaryResearcher.projectId,
+    "机制",
+    "竞争机制 B",
+    graphActor,
+  );
+  const revisionA = await createNodeRevision(
+    db.sql,
+    mechanismA.id,
+    { summary: "机制 A 的候选解释" },
+    "候选",
+    graphActor,
+  );
+  await createNodeRevision(
+    db.sql,
+    mechanismB.id,
+    { summary: "机制 B 已被当前证据削弱" },
+    "已否定",
+    graphActor,
+  );
+  await linkResearchNodes(db.sql, mechanismA.id, mechanismB.id, "挑战", graphActor);
+
+  const failedBranch = await createResearchBranch(
+    db.sql,
+    primaryResearcher.projectId,
+    "失败但保留的机制路线",
+    mechanismB.id,
+    graphActor,
+  );
+  await closeResearchBranch(
+    db.sql,
+    failedBranch.id,
+    "关键测量无法支持该机制",
+    graphActor,
+  );
+
+  const analysisNode = await createResearchNode(
+    db.sql,
+    primaryResearcher.projectId,
+    "分析方案",
+    "主分析方案",
+    graphActor,
+  );
+  const analysisRevision = await createNodeRevision(
+    db.sql,
+    analysisNode.id,
+    { model: "Y ~ X + fixed effects" },
+    "候选",
+    graphActor,
+  );
+  const result = await createResearchResult(
+    db.sql,
+    {
+      projectId: primaryResearcher.projectId,
+      dataVersionRef: "data:v1",
+      analysisRevisionId: analysisRevision.id,
+      executionKind: "code",
+      runRef: "acceptance-run-1",
+      outputRefs: ["table:main-result"],
+      gitCommit: {
+        repositoryFullName: "example/research-project",
+        sha: "0123456789abcdef0123456789abcdef01234567",
+      },
+    },
+    graphActor,
+  );
+  await linkResultEvidence(
+    db.sql,
+    result.id,
+    revisionA.id,
+    "支持",
+    graphActor,
+  );
+
+  const theoryNode = await createResearchNode(
+    db.sql,
+    primaryResearcher.projectId,
+    "理论",
+    "正式理论版本",
+    graphActor,
+  );
+  const oldTheoryRevision = await createNodeRevision(
+    db.sql,
+    theoryNode.id,
+    { summary: "旧版正式理论" },
+    "候选",
+    graphActor,
+  );
+  const bootstrapDecision = await createScientificDecision(
+    db.sql,
+    {
+      projectId: primaryResearcher.projectId,
+      level: "major",
+      title: "建立初始正式理论",
+      reason: "建立第二阶段验收基线",
+      evidence: [],
+      impact: ["正式理论"],
+      change: {
+        kind: "official_revision",
+        slot: "正式理论",
+        revisionId: oldTheoryRevision.id,
+      },
+    },
+    graphActor,
+  );
+  await reviewScientificDecision(
+    db.sql,
+    bootstrapDecision.id,
+    "approve",
+    graphActor,
+  );
+  await reviewScientificDecision(
+    db.sql,
+    bootstrapDecision.id,
+    "approve",
+    { type: "human", id: lead.id },
+  );
+
+  const newTheoryRevision = await createNodeRevision(
+    db.sql,
+    theoryNode.id,
+    { summary: "新版候选理论" },
+    "候选",
+    { type: "agent", id: "theory-agent" },
+  );
+  const aiDecision = await proposeOfficialRevisionChange(
+    db.sql,
+    {
+      projectId: primaryResearcher.projectId,
+      slot: "正式理论",
+      revisionId: newTheoryRevision.id,
+      reason: "新增结果更支持修订后的机制解释",
+      evidence: [{ kind: "result", ref: result.id }],
+    },
+    { type: "agent", id: "theory-agent" },
+  );
+
+  return {
+    lead,
+    researchers,
+    scientificDecision: {
+      projectId: primaryResearcher.projectId,
+      decisionId: aiDecision.id,
+      oldRevisionId: oldTheoryRevision.id,
+      newRevisionId: newTheoryRevision.id,
+    },
+  };
 }
 
 export async function startAcceptanceEnvironment(): Promise<AcceptanceEnvironment> {

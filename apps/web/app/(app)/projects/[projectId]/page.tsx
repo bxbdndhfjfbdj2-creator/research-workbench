@@ -4,15 +4,7 @@ import {
   getProjectOverview,
   requireCurrentMember,
 } from "../../../../src/server/queries";
-
-const PROJECT_NAV = [
-  "总览",
-  "研究网络",
-  "证据与结果",
-  "科学决策",
-  "智能工作",
-  "项目资产",
-] as const;
+import { ProjectNavigation } from "../../../../src/components/project-navigation";
 
 export default async function ProjectPage({
   params,
@@ -31,15 +23,7 @@ export default async function ProjectPage({
         title={project.title}
         description="科研状态可以并行、回退和重新开启；这里显示当前已登记的独立维度状态。"
       />
-      <nav className="project-nav" aria-label="项目导航">
-        {PROJECT_NAV.map((item, index) =>
-          index === 0 ? (
-            <span className="active" key={item}>{item}</span>
-          ) : (
-            <span aria-disabled="true" key={item}>{item}</span>
-          ),
-        )}
-      </nav>
+      <ProjectNavigation projectId={projectId} active="总览" />
 
       <div className="panel">
         <h3>多维科研状态</h3>
