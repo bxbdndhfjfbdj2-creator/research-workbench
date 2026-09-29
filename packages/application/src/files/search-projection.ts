@@ -36,7 +36,7 @@ export async function upsertFileSearchProjection(
        extracted_text, metadata, search_vector)
      values (
        $1, $2, $3, $4, $5, $6, $7::jsonb,
-       to_tsvector('simple', concat_ws(' ', $4, $5, coalesce($6, '')))
+       to_tsvector('simple', concat_ws(' ', $4::text, $5::text, coalesce($6::text, '')))
      )
      on conflict (file_version_id) do update
      set title = excluded.title,
