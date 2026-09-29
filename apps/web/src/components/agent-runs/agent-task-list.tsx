@@ -7,6 +7,7 @@ import {
   answerAgentApprovalAction,
   answerAgentQuestionAction,
   createAgentWorkAction,
+  queueAgentRunAction,
   retryAgentRunAction,
 } from "../../server/agent-actions";
 
@@ -119,6 +120,15 @@ function RunCard({
           <div><dt>模型路由</dt><dd>{run.snapshot?.modelRoute ?? "—"}</dd></div>
         </dl>
       </details>
+
+
+      {run.state === "已提议" || run.state === "等待授权" ? (
+        <form action={queueAgentRunAction} className="run-retry-form">
+          <input type="hidden" name="runId" value={run.id} />
+          <input type="hidden" name="projectId" value={projectId} />
+          <button type="submit">授权并排队</button>
+        </form>
+      ) : null}
 
       {run.state === "失败" || run.state === "取消" || run.state === "被替代" ? (
         <form action={retryAgentRunAction} className="run-retry-form">

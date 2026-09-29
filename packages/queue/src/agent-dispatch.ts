@@ -49,7 +49,7 @@ function taskString(
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-async function loadExecutionRequest(
+export async function loadAgentExecutionRequest(
   sql: DatabaseSql,
   runId: string,
 ): Promise<HarnessExecutionRequest> {
@@ -174,7 +174,7 @@ export async function dispatchAgentRun(
     throw new Error(`Harness unavailable: ${health.detail ?? "no detail"}`);
   }
 
-  const request = await loadExecutionRequest(sql, runId);
+  const request = await loadAgentExecutionRequest(sql, runId);
   let handle: HarnessExecutionHandle;
   try {
     handle = await adapter.start(request);

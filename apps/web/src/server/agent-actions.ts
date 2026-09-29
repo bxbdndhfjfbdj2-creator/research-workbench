@@ -6,6 +6,7 @@ import { createAgentTask } from "@research-workbench/application/src/agents/crea
 import { createAgentRun } from "@research-workbench/application/src/agents/create-agent-run";
 import { buildAgentContextSnapshot } from "@research-workbench/application/src/agents/context-snapshot";
 import { answerHumanInteraction } from "@research-workbench/application/src/agents/human-interaction";
+import { queueAgentRun } from "@research-workbench/application/src/agents/run-lifecycle";
 import type { AgentExecutionPolicy } from "@research-workbench/domain/src/agent-runtime";
 import {
   getWebDbClient,
@@ -101,6 +102,30 @@ export async function createAgentWorkAction(formData: FormData): Promise<void> {
     agentTask.id,
     { ...executionPolicy, contextSnapshotId: snapshot.id },
     actor,
+  );
+  revalidateAgentWork(projectId);
+}
+
+
+export async function queueAgentRunAction(formData: FormData): Promise<void> {
+  const member = await requireCurrentMember();
+  const runId = requiredText(formData, "runId");
+  const projectId = requiredText(formData, "projectId");
+  const db = getWebDbClient();
+
+  const rows = await db.sql.unsafe(
+    "select project_id from agent_runs where id = $1 limit 1",
+    [runId],
+  );
+  const run = rows[0];
+  if (!run || String(run.project_id) !== projectId) {
+    throw new Error("Agent run not found");
+  }
+
+  await queueAgentRun(
+    db.sql,
+    runId,
+    { type: "human", id: member.id },
   );
   revalidateAgentWork(projectId);
 }

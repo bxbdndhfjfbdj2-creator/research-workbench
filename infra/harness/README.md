@@ -95,3 +95,19 @@ The real smoke test is intentionally conditional. It runs only when
 is reported as skipped. A configured provider that fails authentication,
 startup, delegation, or workspace mutation fails the test rather than being
 converted to a synthetic success.
+
+## Production worker composition
+
+The worker composes the SDK adapter through
+`apps/worker/src/production-runtime.ts`. Deployment supplies the pinned dsh
+binary/home/profile, provider/model, the Workbench internal callback endpoint,
+and a server-only callback signing secret. For each AgentRun the composition
+issues a short-lived callback credential (default 15 minutes) and injects only
+that token into the Harness child process. The token is not stored in the Run,
+ContextSnapshot, ResearchEvent, or prompt.
+
+The same composition wires persisted Harness Session references and execution
+context back into the SDK adapter so a runtime may reconstruct a session after
+process loss. Cloud/container process startup remains a deployment concern for
+the later deployment phase; this phase intentionally exposes a testable factory
+rather than adding a second process manager.
