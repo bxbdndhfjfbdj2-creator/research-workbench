@@ -1,28 +1,44 @@
 import { betterAuth } from "better-auth";
+import { getMigrations } from "better-auth/db/migration";
 import { Pool } from "pg";
 
 export type WorkbenchAuthOptions = {
   emailAndPassword: {
     enabled: true;
-    disableSignUp: true;
+    disableSignUp: boolean;
   };
 };
 
-export function createWorkbenchAuthOptions(): WorkbenchAuthOptions {
+export function createWorkbenchAuthOptions(
+  allowAdministrativeBootstrap = false,
+): WorkbenchAuthOptions {
   return {
     emailAndPassword: {
       enabled: true,
-      disableSignUp: true,
+      disableSignUp: !allowAdministrativeBootstrap,
     },
   };
 }
 
-export function createWorkbenchAuth(databaseUrl: string, secret: string) {
+export function createWorkbenchAuth(
+  databaseUrl: string,
+  secret: string,
+  options: { allowAdministrativeBootstrap?: boolean } = {},
+) {
   return betterAuth({
     database: new Pool({ connectionString: databaseUrl }),
     secret,
-    emailAndPassword: createWorkbenchAuthOptions().emailAndPassword,
+    emailAndPassword: createWorkbenchAuthOptions(
+      options.allowAdministrativeBootstrap ?? false,
+    ).emailAndPassword,
   });
+}
+
+export async function migrateWorkbenchAuth(
+  authInstance: ReturnType<typeof createWorkbenchAuth>,
+): Promise<void> {
+  const { runMigrations } = await getMigrations(authInstance.options);
+  await runMigrations();
 }
 
 function requireRuntimeSecret(key: "DATABASE_URL" | "BETTER_AUTH_SECRET"): string {

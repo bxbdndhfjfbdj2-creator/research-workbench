@@ -26,6 +26,10 @@ jobs:
         run: pnpm install --no-frozen-lockfile
       - name: Tests
         run: pnpm test
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Phase one browser acceptance
+        run: pnpm acceptance
       - name: Typecheck
         run: pnpm typecheck
       - name: Lint

@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { getMigrations } from "better-auth/db/migration";
-import { createWorkbenchAuth } from "../apps/web/src/auth";
+import { createWorkbenchAuth, migrateWorkbenchAuth } from "../apps/web/src/auth";
 import { createDbClient, initializeFoundationDatabase } from "../packages/db/src/client";
 import { createInternalMember } from "../packages/application/src/auth/create-internal-member";
 
@@ -29,12 +28,11 @@ const credentials = Array.from({ length: 6 }, (_, index) => {
 });
 
 const db = createDbClient(databaseUrl);
-const bootstrapAuth = createWorkbenchAuth(databaseUrl, authSecret);
-const { runMigrations } = await getMigrations(bootstrapAuth.options);
+const bootstrapAuth = createWorkbenchAuth(databaseUrl, authSecret, { allowAdministrativeBootstrap: true });
 
 try {
   await initializeFoundationDatabase(db.sql);
-  await runMigrations();
+  await migrateWorkbenchAuth(bootstrapAuth);
 
   await db.sql.unsafe(
     "insert into teams (id, name) values ('default-team', 'Research Team') on conflict (id) do nothing",
