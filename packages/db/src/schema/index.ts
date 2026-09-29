@@ -11,3 +11,5 @@ export * from "./official-revisions";
 export * from "./research-result";
 export * from "./agent-runtime";
 export * from "./harness-session-reference";
+export * from "./research-file";
+export * from "./file-ingest";
