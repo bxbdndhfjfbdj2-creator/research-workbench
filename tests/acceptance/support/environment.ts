@@ -5,6 +5,17 @@ import { createInternalMember } from "../../../packages/application/src/auth/cre
 import { createProject } from "../../../packages/application/src/projects/create-project";
 import { setDimensionState } from "../../../packages/application/src/projects/set-dimension-state";
 import {
+  createResearchNode,
+  createNodeRevision,
+  linkResearchNodes,
+} from "../../../packages/application/src/research-graph/node-service";
+import {
+  createResearchBranch,
+  closeResearchBranch,
+} from "../../../packages/application/src/research-graph/branch-service";
+import { createResearchResult } from "../../../packages/application/src/results/create-result";
+import { linkResultEvidence } from "../../../packages/application/src/results/link-evidence";
+import {
   createDbClient,
   initializeFoundationDatabase,
   type DbClient,
@@ -136,6 +147,92 @@ async function seedBusinessData(
       { type: "human", id: researcher.id },
     );
   }
+
+  const primaryResearcher = researchers[0];
+  if (!primaryResearcher?.projectId) throw new Error("Primary acceptance project missing");
+
+  const graphActor = { type: "human" as const, id: primaryResearcher.id };
+  const mechanismA = await createResearchNode(
+    db.sql,
+    primaryResearcher.projectId,
+    "机制",
+    "竞争机制 A",
+    graphActor,
+  );
+  const mechanismB = await createResearchNode(
+    db.sql,
+    primaryResearcher.projectId,
+    "机制",
+    "竞争机制 B",
+    graphActor,
+  );
+  const revisionA = await createNodeRevision(
+    db.sql,
+    mechanismA.id,
+    { summary: "机制 A 的候选解释" },
+    "候选",
+    graphActor,
+  );
+  await createNodeRevision(
+    db.sql,
+    mechanismB.id,
+    { summary: "机制 B 已被当前证据削弱" },
+    "已否定",
+    graphActor,
+  );
+  await linkResearchNodes(db.sql, mechanismA.id, mechanismB.id, "挑战", graphActor);
+
+  const failedBranch = await createResearchBranch(
+    db.sql,
+    primaryResearcher.projectId,
+    "失败但保留的机制路线",
+    mechanismB.id,
+    graphActor,
+  );
+  await closeResearchBranch(
+    db.sql,
+    failedBranch.id,
+    "关键测量无法支持该机制",
+    graphActor,
+  );
+
+  const analysisNode = await createResearchNode(
+    db.sql,
+    primaryResearcher.projectId,
+    "分析方案",
+    "主分析方案",
+    graphActor,
+  );
+  const analysisRevision = await createNodeRevision(
+    db.sql,
+    analysisNode.id,
+    { model: "Y ~ X + fixed effects" },
+    "候选",
+    graphActor,
+  );
+  const result = await createResearchResult(
+    db.sql,
+    {
+      projectId: primaryResearcher.projectId,
+      dataVersionRef: "data:v1",
+      analysisRevisionId: analysisRevision.id,
+      executionKind: "code",
+      runRef: "acceptance-run-1",
+      outputRefs: ["table:main-result"],
+      gitCommit: {
+        repositoryFullName: "example/research-project",
+        sha: "0123456789abcdef0123456789abcdef01234567",
+      },
+    },
+    graphActor,
+  );
+  await linkResultEvidence(
+    db.sql,
+    result.id,
+    revisionA.id,
+    "支持",
+    graphActor,
+  );
 
   return { lead, researchers };
 }
