@@ -1,10 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { initializeFoundationDatabase } from "@research-workbench/db/src/client";
 import { createResearchNode, createNodeRevision } from "./node-service";
+import * as officialRevisionApi from "./official-revision";
 import {
   getOfficialRevision,
   proposeOfficialRevisionChange,
 } from "./official-revision";
+import { createScientificDecision } from "../decisions/create-decision";
+import { reviewScientificDecision } from "../decisions/review-decision";
 import {
   startTestDatabase,
   stopTestDatabase,
@@ -48,6 +51,13 @@ describe("official revision decision boundary", () => {
     if (testDb) await stopTestDatabase(testDb);
   });
 
+  it("keeps internal pointer mutation out of the public official revision API", () => {
+    expect(Object.keys(officialRevisionApi).sort()).toEqual([
+      "getOfficialRevision",
+      "proposeOfficialRevisionChange",
+    ]);
+  });
+
   it("keeps the official pointer unchanged for an AI proposal", async () => {
     const node = await createResearchNode(
       testDb.client.sql,
@@ -78,6 +88,62 @@ describe("official revision decision boundary", () => {
 
     expect(proposal.status).toBe("proposed");
     expect(await getOfficialRevision(testDb.client.sql, projectId, "正式理论")).toBeNull();
+  });
+
+  it("keeps official revision history append-only", async () => {
+    const node = await createResearchNode(
+      testDb.client.sql,
+      projectId,
+      "理论",
+      "历史保护理论",
+      { type: "human", id: projectLeadId },
+    );
+    const revision = await createNodeRevision(
+      testDb.client.sql,
+      node.id,
+      { summary: "受保护的正式历史" },
+      "候选",
+      { type: "human", id: projectLeadId },
+    );
+    const decision = await createScientificDecision(
+      testDb.client.sql,
+      {
+        projectId,
+        level: "major",
+        title: "建立受保护的正式历史",
+        reason: "验证正式版本历史不可改写",
+        evidence: [],
+        impact: ["正式理论"],
+        change: { kind: "official_revision", slot: "正式理论", revisionId: revision.id },
+      },
+      { type: "human", id: projectLeadId },
+    );
+    await reviewScientificDecision(
+      testDb.client.sql,
+      decision.id,
+      "approve",
+      { type: "human", id: projectLeadId },
+    );
+    await reviewScientificDecision(
+      testDb.client.sql,
+      decision.id,
+      "approve",
+      { type: "human", id: "official-org-lead" },
+    );
+
+    await expect(
+      testDb.client.sql.unsafe(
+        "update official_revision_history set slot = '核心研究问题' where decision_id = $1",
+        [decision.id],
+      ),
+    ).rejects.toThrow(/append|immutable/i);
+
+    await expect(
+      testDb.client.sql.unsafe(
+        "delete from official_revision_history where decision_id = $1",
+        [decision.id],
+      ),
+    ).rejects.toThrow(/append|immutable/i);
   });
 
   it("rejects direct database pointer changes without an approved decision", async () => {

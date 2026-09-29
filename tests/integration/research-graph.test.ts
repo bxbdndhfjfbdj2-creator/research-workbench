@@ -151,5 +151,19 @@ describe("nonlinear research graph", () => {
       [projectId],
     );
     expect(events.map((row) => row.event_type)).toContain("RESEARCH_BRANCH_REOPENED");
+
+    await expect(
+      testDb.client.sql.unsafe(
+        "update research_branch_history set reason = '覆盖失败原因' where branch_id = $1 and action = 'closed'",
+        [branch.id],
+      ),
+    ).rejects.toThrow(/append|immutable/i);
+
+    await expect(
+      testDb.client.sql.unsafe(
+        "delete from research_branches where id = $1",
+        [branch.id],
+      ),
+    ).rejects.toThrow(/preserve|delete|history/i);
   });
 });
