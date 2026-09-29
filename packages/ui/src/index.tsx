@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 const MAIN_NAVIGATION = [
   { label: "研究组合", href: "/portfolio", enabled: true },
   { label: "研究项目", href: "/portfolio", enabled: true },
-  { label: "科学决策", href: "#", enabled: false },
+  { label: "科学决策", href: "/decisions", enabled: true },
   { label: "智能工作", href: "#", enabled: false },
   { label: "共享资产", href: "#", enabled: false },
   { label: "团队", href: "/team", enabled: true },

@@ -99,3 +99,31 @@ form button { border: 0; border-radius: 8px; padding: 11px 14px; background: #17
 .result-card dt { color: #6f7780; font-size: 12px; }
 .result-card dd { margin: 0; overflow-wrap: anywhere; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+
+.decision-list, .official-revision-list, .official-history-list { display: grid; gap: 12px; }
+.decision-card {
+  background: #fff; border: 1px solid #e1e4e8; border-radius: 14px; padding: 20px;
+  box-shadow: 0 6px 20px rgba(17, 19, 21, .04);
+}
+.decision-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.decision-card-heading h3 { margin: 4px 0 0; }
+.decision-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.decision-details { display: grid; gap: 9px; margin: 18px 0 0; }
+.decision-details div { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 12px; }
+.decision-details dt { color: #6f7780; font-size: 12px; }
+.decision-details dd { margin: 0; line-height: 1.55; }
+.decision-review-history { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 16px; color: #5f6670; font-size: 12px; }
+.decision-actions { margin-top: 18px; padding-top: 16px; border-top: 1px solid #edf0f2; }
+.decision-actions form { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+.decision-actions form button { padding: 8px 12px; }
+.decision-actions .secondary-action { background: #edf1f4; color: #39414a; }
+.decision-section { margin-top: 22px; }
+.decision-section > h3 { margin: 0 0 12px; }
+.official-panel { margin-bottom: 20px; }
+.official-revision-row, .official-history-row {
+  display: grid; grid-template-columns: 130px minmax(0, 1fr) auto; gap: 14px; align-items: center;
+  border-bottom: 1px solid #edf0f2; padding: 10px 0;
+}
+.official-revision-row:last-child, .official-history-row:last-child { border-bottom: 0; }
+.official-revision-row span, .official-history-row span { color: #687079; font-size: 12px; }
+.official-revision-row small, .official-history-row small { color: #818890; }

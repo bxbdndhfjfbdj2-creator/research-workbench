@@ -390,3 +390,199 @@ export async function getProjectEvidence(
     })),
   };
 }
+
+
+export type DecisionCenterItem = {
+  id: string;
+  projectId: string;
+  projectTitle: string;
+  level: "general" | "major";
+  title: string;
+  reason: string;
+  evidence: Array<{ kind: string; ref: string }>;
+  impact: string[];
+  status: "proposed" | "awaiting_lead" | "needs_evidence" | "approved" | "rejected";
+  proposerType: "human" | "agent" | "system";
+  targetSlot: string | null;
+  targetRevisionId: string | null;
+  targetRevisionSummary: string | null;
+  canReview: boolean;
+  reviewStage: "project_lead" | "team_lead" | null;
+  reviews: Array<{
+    stage: string;
+    action: string;
+    reviewerName: string;
+  }>;
+};
+
+export type ProjectDecisionCenterViewModel = {
+  decisions: DecisionCenterItem[];
+  currentOfficial: Array<{
+    slot: string;
+    revisionId: string;
+    revisionNumber: number;
+    summary: string;
+  }>;
+  officialHistory: Array<{
+    slot: string;
+    revisionId: string;
+    revisionNumber: number;
+    summary: string;
+    decisionId: string;
+  }>;
+};
+
+function summaryFromJson(value: unknown): string {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    for (const key of ["summary", "question", "model", "title", "name"]) {
+      const candidate = record[key];
+      if (typeof candidate === "string" && candidate.trim()) return candidate;
+    }
+  }
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
+}
+
+async function loadDecisionItems(
+  member: CurrentMember,
+  whereSql: string,
+  params: unknown[],
+): Promise<DecisionCenterItem[]> {
+  const db = webDb();
+  const rows = await db.sql.unsafe(
+    `select d.id, d.project_id, p.title as project_title, p.lead_member_id,
+            d.level, d.title, d.reason, d.evidence, d.impact, d.status,
+            d.proposed_by_type, d.target_slot, d.target_revision_id,
+            target.content as target_content
+     from scientific_decisions d
+     join research_projects p on p.id = d.project_id
+     join research_portfolios rp on rp.id = p.portfolio_id
+     left join research_node_revisions target on target.id = d.target_revision_id
+     where ${whereSql}
+     order by d.created_at desc, d.id desc`,
+    params,
+  );
+
+  return Promise.all(
+    rows.map(async (row) => {
+      const decisionId = String(row.id);
+      const reviewRows = await db.sql.unsafe(
+        `select dr.stage, dr.action, m.display_name
+         from decision_reviews dr
+         join members m on m.id = dr.reviewer_member_id
+         where dr.decision_id = $1
+         order by dr.created_at asc, dr.id asc`,
+        [decisionId],
+      );
+      const status = row.status as DecisionCenterItem["status"];
+      const projectLead = String(row.lead_member_id) === member.id;
+      const canProjectLeadReview =
+        projectLead && (status === "proposed" || status === "needs_evidence");
+      const canTeamLeadReview =
+        member.organizationRole === "lead" && status === "awaiting_lead";
+
+      return {
+        id: decisionId,
+        projectId: String(row.project_id),
+        projectTitle: String(row.project_title),
+        level: row.level as "general" | "major",
+        title: String(row.title),
+        reason: String(row.reason),
+        evidence: Array.isArray(row.evidence)
+          ? (row.evidence as Array<{ kind: string; ref: string }>)
+          : [],
+        impact: Array.isArray(row.impact) ? (row.impact as string[]) : [],
+        status,
+        proposerType: row.proposed_by_type as "human" | "agent" | "system",
+        targetSlot: row.target_slot ? String(row.target_slot) : null,
+        targetRevisionId: row.target_revision_id ? String(row.target_revision_id) : null,
+        targetRevisionSummary: row.target_revision_id
+          ? summaryFromJson(row.target_content)
+          : null,
+        canReview: canProjectLeadReview || canTeamLeadReview,
+        reviewStage: canProjectLeadReview
+          ? "project_lead"
+          : canTeamLeadReview
+            ? "team_lead"
+            : null,
+        reviews: reviewRows.map((review) => ({
+          stage: String(review.stage),
+          action: String(review.action),
+          reviewerName: String(review.display_name),
+        })),
+      };
+    }),
+  );
+}
+
+export async function getProjectDecisionCenter(
+  member: CurrentMember,
+  projectId: string,
+): Promise<ProjectDecisionCenterViewModel | null> {
+  const db = webDb();
+  try {
+    await authorizeProjectAccess(db.sql, member.id, projectId, "read");
+  } catch {
+    return null;
+  }
+
+  const [decisions, officialRows, historyRows] = await Promise.all([
+    loadDecisionItems(member, "d.project_id = $1", [projectId]),
+    db.sql.unsafe(
+      `select o.slot, o.revision_id, r.revision_number, r.content
+       from official_revisions o
+       join research_node_revisions r on r.id = o.revision_id
+       where o.project_id = $1
+       order by o.slot asc`,
+      [projectId],
+    ),
+    db.sql.unsafe(
+      `select h.slot, h.revision_id, h.decision_id, r.revision_number, r.content
+       from official_revision_history h
+       join research_node_revisions r on r.id = h.revision_id
+       where h.project_id = $1
+       order by h.changed_at asc, h.id asc`,
+      [projectId],
+    ),
+  ]);
+
+  return {
+    decisions,
+    currentOfficial: officialRows.map((row) => ({
+      slot: String(row.slot),
+      revisionId: String(row.revision_id),
+      revisionNumber: Number(row.revision_number),
+      summary: summaryFromJson(row.content),
+    })),
+    officialHistory: historyRows.map((row) => ({
+      slot: String(row.slot),
+      revisionId: String(row.revision_id),
+      revisionNumber: Number(row.revision_number),
+      summary: summaryFromJson(row.content),
+      decisionId: String(row.decision_id),
+    })),
+  };
+}
+
+export async function listAttentionDecisions(
+  member: CurrentMember,
+): Promise<DecisionCenterItem[]> {
+  if (member.organizationRole === "lead") {
+    return loadDecisionItems(
+      member,
+      "rp.team_id = $1 and d.status in ('proposed', 'awaiting_lead', 'needs_evidence', 'approved')",
+      [member.teamId],
+    );
+  }
+
+  return loadDecisionItems(
+    member,
+    "rp.team_id = $1 and p.lead_member_id = $2 and d.status in ('proposed', 'awaiting_lead', 'needs_evidence', 'approved')",
+    [member.teamId, member.id],
+  );
+}
+
+export function getWebDbClient() {
+  return webDb();
+}
