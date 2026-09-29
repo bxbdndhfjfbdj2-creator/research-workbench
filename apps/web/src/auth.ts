@@ -31,10 +31,12 @@ function requireRuntimeSecret(key: "DATABASE_URL" | "BETTER_AUTH_SECRET"): strin
   return value;
 }
 
-export const auth =
-  process.env.NODE_ENV === "test"
-    ? null
-    : createWorkbenchAuth(
-        requireRuntimeSecret("DATABASE_URL"),
-        requireRuntimeSecret("BETTER_AUTH_SECRET"),
-      );
+let runtimeAuth: ReturnType<typeof createWorkbenchAuth> | undefined;
+
+export function getWorkbenchAuth() {
+  runtimeAuth ??= createWorkbenchAuth(
+    requireRuntimeSecret("DATABASE_URL"),
+    requireRuntimeSecret("BETTER_AUTH_SECRET"),
+  );
+  return runtimeAuth;
+}

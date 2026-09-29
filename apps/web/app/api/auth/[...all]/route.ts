@@ -1,8 +1,11 @@
 import { toNextJsHandler } from "better-auth/next-js";
-import { auth } from "../../../../src/auth";
+import { getWorkbenchAuth } from "../../../../src/auth";
 
-if (!auth) {
-  throw new Error("Better Auth server is unavailable in test mode");
+async function dispatch(request: Request) {
+  const handlers = toNextJsHandler(getWorkbenchAuth());
+  const handler = request.method === "GET" ? handlers.GET : handlers.POST;
+  return handler(request);
 }
 
-export const { GET, POST } = toNextJsHandler(auth);
+export const GET = dispatch;
+export const POST = dispatch;
