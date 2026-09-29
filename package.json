@@ -7,7 +7,7 @@
     "node": ">=22.19"
   },
   "scripts": {
-    "test": "vitest run --exclude tests/acceptance/**",
+    "test": "vitest run --exclude 'tests/acceptance/**'",
     "typecheck": "tsc -p tsconfig.base.json --noEmit",
     "lint": "tsc -p tsconfig.base.json --noEmit",
     "build": "pnpm --filter @research-workbench/web build && tsc -p tsconfig.base.json --noEmit",
