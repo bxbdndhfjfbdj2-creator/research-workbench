@@ -8,3 +8,4 @@ export * from "./research-task";
 export * from "./research-graph";
 export * from "./scientific-decision";
 export * from "./official-revisions";
+export * from "./research-result";

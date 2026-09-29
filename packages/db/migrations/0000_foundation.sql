@@ -282,3 +282,63 @@ drop trigger if exists official_revisions_decision_lock on official_revisions;
 create trigger official_revisions_decision_lock
 before insert or update or delete on official_revisions
 for each row execute function validate_official_revision_change();
+
+-- statement-breakpoint
+create table if not exists research_results (
+  id text primary key,
+  project_id text not null references research_projects(id) on delete cascade,
+  data_version_ref text not null,
+  analysis_revision_id text not null references research_node_revisions(id) on delete restrict,
+  execution_kind text not null,
+  run_ref text not null,
+  output_refs jsonb not null,
+  git_repository_full_name text,
+  git_commit_sha text,
+  created_by_type text not null,
+  created_by_id text not null,
+  created_at timestamptz not null default now(),
+  constraint research_results_execution_kind_check check (execution_kind in ('manual', 'code')),
+  constraint research_results_actor_type_check check (created_by_type in ('human', 'agent', 'system')),
+  constraint research_results_code_git_check check (
+    execution_kind <> 'code' or (git_repository_full_name is not null and git_commit_sha is not null)
+  )
+);
+-- statement-breakpoint
+create table if not exists research_result_supersessions (
+  id text primary key,
+  project_id text not null references research_projects(id) on delete cascade,
+  new_result_id text not null references research_results(id) on delete restrict,
+  old_result_id text not null references research_results(id) on delete restrict,
+  actor_type text not null,
+  actor_id text not null,
+  created_at timestamptz not null default now(),
+  constraint research_result_supersessions_old_unique unique (old_result_id),
+  constraint research_result_supersessions_distinct_check check (new_result_id <> old_result_id)
+);
+-- statement-breakpoint
+create table if not exists research_result_evidence_links (
+  id text primary key,
+  project_id text not null references research_projects(id) on delete cascade,
+  result_id text not null references research_results(id) on delete restrict,
+  revision_id text not null references research_node_revisions(id) on delete restrict,
+  relation text not null,
+  actor_type text not null,
+  actor_id text not null,
+  created_at timestamptz not null default now(),
+  constraint research_result_evidence_relation_check check (relation in ('支持', '挑战', '检验'))
+);
+-- statement-breakpoint
+create or replace function reject_research_result_mutation()
+returns trigger
+language plpgsql
+as $$
+begin
+  raise exception 'research_results are immutable and append-only';
+end;
+$$;
+-- statement-breakpoint
+drop trigger if exists research_results_immutable on research_results;
+-- statement-breakpoint
+create trigger research_results_immutable
+before update or delete on research_results
+for each row execute function reject_research_result_mutation();
