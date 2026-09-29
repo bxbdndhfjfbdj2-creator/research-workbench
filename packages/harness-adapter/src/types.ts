@@ -3,6 +3,7 @@ import type {
   AgentSandboxPolicy,
 } from "../../domain/src/agent-runtime";
 import type { JsonValue } from "../../domain/src/events";
+import type { AgentResearchResultOutput } from "../../domain/src/agent-output";
 
 export type HarnessStopReason =
   | "completed"
@@ -62,6 +63,7 @@ export type HarnessExecutionResult = {
   artifactRefs: string[];
   githubHints: HarnessGitHubHint[];
   scientificChangeProposals: HarnessScientificChangeProposal[];
+  researchResult?: AgentResearchResultOutput;
   stopReason: HarnessStopReason;
 };
 

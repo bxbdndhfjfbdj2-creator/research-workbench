@@ -10,6 +10,7 @@ import type {
   HarnessExecutionRequest,
 } from "../../harness-adapter/src/types";
 import { markRunState } from "../../application/src/agents/run-lifecycle";
+import { ingestAgentResult } from "../../application/src/agents/result-ingestion";
 
 const DISPATCH_ACTOR = { type: "system" as const, id: "agent-dispatcher" };
 
@@ -200,5 +201,16 @@ export async function dispatchAgentRun(
   });
   if (!changed) {
     throw new Error("Agent run state changed while Harness execution was being recorded");
+  }
+  if (nextState === "完成" && handle.result) {
+    try {
+      await ingestAgentResult(sql, runId, handle.result);
+    } catch (error) {
+      await sql.unsafe(
+        "update agent_runs set state = '失败', failure_code = 'INVALID_AGENT_OUTPUT', updated_at = now() where id = $1 and state = '完成'",
+        [runId],
+      );
+      throw error;
+    }
   }
 }

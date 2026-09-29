@@ -178,6 +178,41 @@ function parseScientificChangeProposals(
   return proposals;
 }
 
+function parseResearchResult(value: unknown): HarnessExecutionResult["researchResult"] {
+  if (value === undefined) return undefined;
+  const record = asRecord(value);
+  if (!record) return undefined;
+  if (
+    typeof record.dataVersionRef !== "string" ||
+    typeof record.analysisRevisionId !== "string" ||
+    (record.executionKind !== "manual" && record.executionKind !== "code") ||
+    !Array.isArray(record.outputRefs) ||
+    !record.outputRefs.every((item) => typeof item === "string")
+  ) {
+    return undefined;
+  }
+  const parsed: NonNullable<HarnessExecutionResult["researchResult"]> = {
+    dataVersionRef: record.dataVersionRef,
+    analysisRevisionId: record.analysisRevisionId,
+    executionKind: record.executionKind,
+    outputRefs: record.outputRefs as string[],
+  };
+  if (record.gitCommit !== undefined) {
+    const git = asRecord(record.gitCommit);
+    if (
+      git &&
+      typeof git.repositoryFullName === "string" &&
+      typeof git.sha === "string"
+    ) {
+      parsed.gitCommit = {
+        repositoryFullName: git.repositoryFullName,
+        sha: git.sha,
+      };
+    }
+  }
+  return parsed;
+}
+
 function safeFailureResult(summary: string): HarnessExecutionResult {
   return {
     visibleMessageSummary: summary,
@@ -240,6 +275,9 @@ function parseExecutionResult(finalResponse: string): HarnessExecutionResult {
     scientificChangeProposals: parseScientificChangeProposals(
       record.scientificChangeProposals,
     ),
+    ...(parseResearchResult(record.researchResult) === undefined
+      ? {}
+      : { researchResult: parseResearchResult(record.researchResult) }),
     stopReason,
   };
 
