@@ -538,3 +538,17 @@ drop trigger if exists agent_run_artifacts_immutable on agent_run_artifacts;
 create trigger agent_run_artifacts_immutable
 before update or delete on agent_run_artifacts
 for each row execute function reject_append_only_record_mutation();
+
+-- statement-breakpoint
+create table if not exists agent_run_ingestions (
+  run_id text primary key references agent_runs(id) on delete restrict,
+  research_result_id text references research_results(id) on delete restrict,
+  decision_ids jsonb not null,
+  created_at timestamptz not null default now()
+);
+-- statement-breakpoint
+drop trigger if exists agent_run_ingestions_immutable on agent_run_ingestions;
+-- statement-breakpoint
+create trigger agent_run_ingestions_immutable
+before update or delete on agent_run_ingestions
+for each row execute function reject_append_only_record_mutation();

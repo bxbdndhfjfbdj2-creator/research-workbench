@@ -10,10 +10,10 @@ import {
 } from "@research-workbench/domain/src/scientific-decision";
 import type { AgentResearchResultOutput } from "@research-workbench/domain/src/agent-output";
 import type { HarnessExecutionResult } from "../../../harness-adapter/src/types";
-import { createScientificDecision } from "../decisions/create-decision";
+import { createScientificDecisionInTransaction } from "../decisions/create-decision";
 import { appendResearchEvent } from "../events/append-research-event";
-import { runInTransaction } from "../transactions";
-import { createResearchResult } from "../results/create-result";
+import { createResearchResultInTransaction } from "../results/create-result";
+import { runInTransaction, type TransactionSql } from "../transactions";
 
 export type AgentResultIngestion = {
   researchResultId: string | null;
@@ -110,7 +110,7 @@ function decisionFrom(
 }
 
 async function persistRunArtifacts(
-  sql: DatabaseSql,
+  tx: TransactionSql,
   runId: string,
   projectId: string,
   result: HarnessExecutionResult,
@@ -134,21 +134,19 @@ async function persistRunArtifacts(
     })),
   ];
 
-  await runInTransaction(sql, async (tx) => {
-    for (const row of rows) {
-      await tx.unsafe(
-        `insert into agent_run_artifacts (id, run_id, kind, payload)
-         values ($1, $2, $3, $4::jsonb)`,
-        [randomUUID(), runId, row.kind, JSON.stringify(row.payload)],
-      );
-    }
-    await appendResearchEvent(tx, {
-      id: randomUUID(),
-      projectId,
-      eventType: "AGENT_RUN_ARTIFACTS_RECORDED",
-      actor: { type: "system", id: "agent-result-ingestion" },
-      payload: { agentRunId: runId, count: rows.length },
-    });
+  for (const row of rows) {
+    await tx.unsafe(
+      `insert into agent_run_artifacts (id, run_id, kind, payload)
+       values ($1, $2, $3, $4::jsonb)`,
+      [randomUUID(), runId, row.kind, JSON.stringify(row.payload)],
+    );
+  }
+  await appendResearchEvent(tx, {
+    id: randomUUID(),
+    projectId,
+    eventType: "AGENT_RUN_ARTIFACTS_RECORDED",
+    actor: { type: "system", id: "agent-result-ingestion" },
+    payload: { agentRunId: runId, count: rows.length },
   });
 }
 
@@ -158,54 +156,107 @@ export async function ingestAgentResult(
   result: HarnessExecutionResult,
 ): Promise<AgentResultIngestion> {
   assertSecretSafe(result as unknown as JsonValue);
-
-  const rows = (await sql.unsafe(
-    `select r.project_id, r.state, s.data_version_ref
-     from agent_runs r
-     left join agent_context_snapshots s on s.id = r.context_snapshot_id
-     where r.id = $1
-     limit 1`,
-    [runId],
-  )) as readonly RunContext[];
-  const run = rows[0];
-  if (!run) throw new Error("Agent run not found");
-  if (run.state !== "完成" || result.stopReason !== "completed") {
+  if (result.stopReason !== "completed") {
     throw new Error("Agent result ingestion requires a completed Run");
   }
 
-  if (result.researchResult) validateResearchResult(result.researchResult, run);
-  const decisions = result.scientificChangeProposals.map((proposal) =>
-    decisionFrom(run.project_id, proposal),
-  );
-
-  await persistRunArtifacts(sql, runId, run.project_id, result);
-
-  const agentActor = { type: "agent" as const, id: `agent-run:${runId}` };
-  let researchResultId: string | null = null;
-  if (result.researchResult) {
-    const created = await createResearchResult(
-      sql,
-      {
-        projectId: run.project_id,
-        dataVersionRef: result.researchResult.dataVersionRef,
-        analysisRevisionId: result.researchResult.analysisRevisionId,
-        executionKind: result.researchResult.executionKind,
-        runRef: runId,
-        outputRefs: result.researchResult.outputRefs,
-        ...(result.researchResult.gitCommit
-          ? { gitCommit: result.researchResult.gitCommit }
-          : {}),
-      },
-      agentActor,
+  return runInTransaction(sql, async (tx) => {
+    const priorRows = await tx.unsafe(
+      `select research_result_id, decision_ids
+       from agent_run_ingestions
+       where run_id = $1
+       limit 1`,
+      [runId],
     );
-    researchResultId = created.id;
-  }
+    const prior = priorRows[0];
+    if (prior) {
+      return {
+        researchResultId: prior.research_result_id
+          ? String(prior.research_result_id)
+          : null,
+        decisionIds: Array.isArray(prior.decision_ids)
+          ? prior.decision_ids.map(String)
+          : [],
+      };
+    }
 
-  const decisionIds: string[] = [];
-  for (const proposal of decisions) {
-    const decision = await createScientificDecision(sql, proposal, agentActor);
-    decisionIds.push(decision.id);
-  }
+    const rows = (await tx.unsafe(
+      `select r.project_id, r.state, s.data_version_ref
+       from agent_runs r
+       left join agent_context_snapshots s on s.id = r.context_snapshot_id
+       where r.id = $1
+       for update`,
+      [runId],
+    )) as readonly RunContext[];
+    const run = rows[0];
+    if (!run) throw new Error("Agent run not found");
+    if (!["已派发", "执行中", "完成"].includes(run.state)) {
+      throw new Error("Agent result ingestion requires a completed Run");
+    }
 
-  return { researchResultId, decisionIds };
+    if (result.researchResult) validateResearchResult(result.researchResult, run);
+    const decisions = result.scientificChangeProposals.map((proposal) =>
+      decisionFrom(run.project_id, proposal),
+    );
+    const agentActor = { type: "agent" as const, id: `agent-run:${runId}` };
+
+    await persistRunArtifacts(tx, runId, run.project_id, result);
+
+    let researchResultId: string | null = null;
+    if (result.researchResult) {
+      const created = await createResearchResultInTransaction(
+        tx,
+        {
+          projectId: run.project_id,
+          dataVersionRef: result.researchResult.dataVersionRef,
+          analysisRevisionId: result.researchResult.analysisRevisionId,
+          executionKind: result.researchResult.executionKind,
+          runRef: runId,
+          outputRefs: result.researchResult.outputRefs,
+          ...(result.researchResult.gitCommit
+            ? { gitCommit: result.researchResult.gitCommit }
+            : {}),
+        },
+        agentActor,
+      );
+      researchResultId = created.id;
+    }
+
+    const decisionIds: string[] = [];
+    for (const proposal of decisions) {
+      const decision = await createScientificDecisionInTransaction(
+        tx,
+        proposal,
+        agentActor,
+      );
+      decisionIds.push(decision.id);
+    }
+
+    await tx.unsafe(
+      `insert into agent_run_ingestions
+        (run_id, research_result_id, decision_ids)
+       values ($1, $2, $3::jsonb)`,
+      [runId, researchResultId, JSON.stringify(decisionIds)],
+    );
+
+    await tx.unsafe(
+      `update agent_runs
+       set state = '完成', failure_code = null, updated_at = now()
+       where id = $1`,
+      [runId],
+    );
+    await appendResearchEvent(tx, {
+      id: randomUUID(),
+      projectId: run.project_id,
+      eventType: "AGENT_RUN_COMPLETED",
+      actor: { type: "system", id: "agent-result-ingestion" },
+      payload: {
+        agentRunId: runId,
+        researchResultId,
+        decisionIds,
+      },
+    });
+
+    return { researchResultId, decisionIds };
+  });
 }

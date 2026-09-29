@@ -73,6 +73,9 @@ export type SdkHarnessAdapterOptions = {
   loadExecutionRequest?: (
     runId: string,
   ) => Promise<HarnessExecutionRequest | null>;
+  resolveHumanInteractionBridge?: (
+    request: HarnessExecutionRequest,
+  ) => Promise<{ endpoint: string; callbackToken: string } | null>;
 };
 
 type ActiveRuntime = {
@@ -347,7 +350,7 @@ export class SdkHarnessAdapter implements HarnessAdapter {
   ): Promise<HarnessExecutionHandle> {
     this.validateRequest(request);
     const sessionId = stableSessionId(request.runId);
-    const runtime = this.runtimeFactory(this.launchOptions(request));
+    const runtime = this.runtimeFactory(await this.launchOptions(request));
 
     try {
       await runtime.start();
@@ -403,7 +406,7 @@ export class SdkHarnessAdapter implements HarnessAdapter {
         throw new Error("Harness resume session does not match persisted reference");
       }
       this.validateRequest(executionRequest);
-      const runtime = this.runtimeFactory(this.launchOptions(executionRequest));
+      const runtime = this.runtimeFactory(await this.launchOptions(executionRequest));
       await runtime.start();
       await this.options.recordSessionReference({
         runId: request.runId,
@@ -498,9 +501,9 @@ export class SdkHarnessAdapter implements HarnessAdapter {
     }
   }
 
-  private launchOptions(
+  private async launchOptions(
     request: HarnessExecutionRequest,
-  ): SdkRuntimeFactoryOptions {
+  ): Promise<SdkRuntimeFactoryOptions> {
     const requestedEnvironmentNames =
       request.envAllowlist ?? this.options.allowedEnvironmentNames;
     const sourceEnv = this.options.processEnv ?? process.env;
@@ -515,6 +518,25 @@ export class SdkHarnessAdapter implements HarnessAdapter {
     env.DSH_TELEMETRY_MODE = "DISABLED";
     env.RW_TOOL_ALLOWLIST = JSON.stringify(request.toolAllowlist);
     env.RW_SUBAGENT_ALLOWLIST = JSON.stringify(request.subagentAllowlist);
+
+    const bridge = await this.options.resolveHumanInteractionBridge?.(request);
+    if (bridge) {
+      if (!bridge.endpoint.trim() || !bridge.callbackToken.trim()) {
+        throw new Error("Workbench human interaction bridge configuration is incomplete");
+      }
+      let endpoint: URL;
+      try {
+        endpoint = new URL(bridge.endpoint);
+      } catch {
+        throw new Error("Workbench human interaction bridge endpoint is invalid");
+      }
+      if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
+        throw new Error("Workbench human interaction bridge endpoint must use HTTP(S)");
+      }
+      env.RW_AGENT_RUN_ID = request.runId;
+      env.RW_AGENT_CALLBACK_ENDPOINT = bridge.endpoint;
+      env.RW_AGENT_CALLBACK_TOKEN = bridge.callbackToken;
+    }
 
     return {
       dshBin: this.options.dshBin,

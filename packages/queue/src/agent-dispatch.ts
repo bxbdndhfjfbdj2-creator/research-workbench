@@ -195,22 +195,31 @@ export async function dispatchAgentRun(
   }
 
   const nextState = stateForHandle(handle);
+  if (nextState === "完成") {
+    if (!handle.result) {
+      await markRunState(sql, runId, "已派发", "失败", {
+        actor: DISPATCH_ACTOR,
+        failureCode: "INVALID_AGENT_OUTPUT",
+      });
+      throw new Error("Completed Harness execution returned no structured result");
+    }
+    try {
+      await ingestAgentResult(sql, runId, handle.result);
+    } catch (error) {
+      await markRunState(sql, runId, "已派发", "失败", {
+        actor: DISPATCH_ACTOR,
+        failureCode: "INVALID_AGENT_OUTPUT",
+      });
+      throw error;
+    }
+    return;
+  }
+
   const changed = await markRunState(sql, runId, "已派发", nextState, {
     actor: DISPATCH_ACTOR,
     failureCode: nextState === "失败" ? "HARNESS_EXECUTION_FAILED" : null,
   });
   if (!changed) {
     throw new Error("Agent run state changed while Harness execution was being recorded");
-  }
-  if (nextState === "完成" && handle.result) {
-    try {
-      await ingestAgentResult(sql, runId, handle.result);
-    } catch (error) {
-      await sql.unsafe(
-        "update agent_runs set state = '失败', failure_code = 'INVALID_AGENT_OUTPUT', updated_at = now() where id = $1 and state = '完成'",
-        [runId],
-      );
-      throw error;
-    }
   }
 }
