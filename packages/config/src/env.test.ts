@@ -43,6 +43,7 @@ describe("loadConfig", () => {
 describe("loadFileUploadConfig", () => {
   it("returns secret references and validated non-secret upload settings", () => {
     const config = loadFileUploadConfig({
+      NODE_ENV: "test",
       FILE_UPLOAD_SIGNING_SECRET: "upload-signing-secret",
       FILE_STORAGE_ACCESS_KEY_ID: "storage-access",
       FILE_STORAGE_SECRET_ACCESS_KEY: "storage-secret",
@@ -69,6 +70,7 @@ describe("loadFileUploadConfig", () => {
 
   it("rejects invalid file upload limits and endpoints", () => {
     const base = {
+      NODE_ENV: "test",
       FILE_UPLOAD_SIGNING_SECRET: "upload-signing-secret",
       FILE_STORAGE_ACCESS_KEY_ID: "storage-access",
       FILE_STORAGE_SECRET_ACCESS_KEY: "storage-secret",
