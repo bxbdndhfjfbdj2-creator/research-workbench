@@ -69,7 +69,7 @@ describe("tusd hook ingestion", () => {
     type: "pre-create" | "post-finish",
     uploadIntentId: string,
     options: {
-      uploadId?: string;
+      uploadId?: string | null;
       size?: number;
       offset?: number;
       metadata?: Record<string, string>;
@@ -82,20 +82,24 @@ describe("tusd hook ingestion", () => {
     return {
       type,
       upload: {
-        id: options.uploadId ?? "tus-upload-1",
+        id: options.uploadId ?? (type === "pre-create" ? null : "tus-upload-1"),
         size,
         offset: options.offset ?? (type === "post-finish" ? size : 0),
         metadata: options.metadata ?? { workbenchUploadId: uploadIntentId },
-        storage: {
-          type: options.storageType ?? "s3store",
-          bucket: options.bucket ?? policy.quarantineBucket,
-          key: options.key ?? `${policy.quarantinePrefix}opaque-upload-key`,
-        },
+        ...(type === "post-finish"
+          ? {
+              storage: {
+                type: options.storageType ?? "s3store",
+                bucket: options.bucket ?? policy.quarantineBucket,
+                key: options.key ?? `${policy.quarantinePrefix}opaque-upload-key`,
+              },
+            }
+          : {}),
       },
     } as const;
   }
 
-  it("accepts a valid pre-create and binds the tus upload id without persisting arbitrary metadata", async () => {
+  it("accepts a valid pre-create before tusd has assigned an upload id or storage location", async () => {
     const intent = await createIntent();
 
     const result = await hooks.handleTusHook(
@@ -113,7 +117,7 @@ describe("tusd hook ingestion", () => {
     );
     expect(rows[0]).toMatchObject({
       state: "uploading",
-      tus_upload_id: "tus-upload-1",
+      tus_upload_id: null,
       quarantine_key: null,
     });
   });
