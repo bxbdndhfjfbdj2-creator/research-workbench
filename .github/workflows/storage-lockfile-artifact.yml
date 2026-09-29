@@ -1,0 +1,43 @@
+name: Generate storage lockfile artifact
+
+on:
+  push:
+    branches:
+      - phase/04-research-operations
+    paths:
+      - .github/workflows/storage-lockfile-artifact.yml
+
+permissions:
+  contents: read
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - name: Generate exact storage dependency lockfile
+        shell: bash
+        run: |
+          cat > packages/storage/package.json <<'JSON'
+          {
+            "name": "@research-workbench/storage",
+            "private": true,
+            "version": "0.0.0",
+            "type": "module",
+            "dependencies": {
+              "@aws-sdk/client-s3": "3.1141.0"
+            }
+          }
+          JSON
+          pnpm install --lockfile-only --no-frozen-lockfile
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase4a-storage-lockfile
+          path: pnpm-lock.yaml
+          if-no-files-found: error
