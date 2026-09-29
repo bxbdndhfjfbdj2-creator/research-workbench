@@ -102,3 +102,22 @@ create table if not exists research_tasks (
   constraint research_tasks_status_check
     check (status in ('open', 'in_progress', 'blocked', 'completed', 'cancelled'))
 );
+-- statement-breakpoint
+create unique index if not exists members_one_active_lead_per_team
+  on members (team_id)
+  where organization_role = 'lead' and actor_type = 'human' and active = true;
+-- statement-breakpoint
+create or replace function reject_research_event_mutation()
+returns trigger
+language plpgsql
+as $$
+begin
+  raise exception 'research_events are append-only';
+end;
+$$;
+-- statement-breakpoint
+drop trigger if exists research_events_append_only on research_events;
+-- statement-breakpoint
+create trigger research_events_append_only
+before update or delete on research_events
+for each row execute function reject_research_event_mutation();

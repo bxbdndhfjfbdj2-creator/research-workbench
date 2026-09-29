@@ -42,6 +42,16 @@ export async function createInternalMember(
       throw new Error("Team capacity is limited to six active human members");
     }
 
+    if (input.organizationRole === "lead") {
+      const existingLead = await tx.unsafe(
+        "select 1 from members where team_id = $1 and organization_role = 'lead' and actor_type = 'human' and active = true limit 1",
+        [input.teamId],
+      );
+      if (existingLead.length > 0) {
+        throw new Error("Team already has an active lead");
+      }
+    }
+
     const rows = (await tx.unsafe(
       `insert into members
         (id, team_id, email, display_name, organization_role, actor_type, active, auth_user_id)

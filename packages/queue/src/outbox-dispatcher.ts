@@ -73,9 +73,9 @@ export async function markOutboxDelivered(
 export async function markOutboxFailed(
   sql: DatabaseSql,
   id: string,
-  error: unknown,
+  _error: unknown,
 ): Promise<void> {
-  const message = error instanceof Error ? error.message : String(error);
+  const safeSummary = "DispatchError";
   await sql.unsafe(
     `update outbox_events
      set status = 'pending',
@@ -83,6 +83,6 @@ export async function markOutboxFailed(
          last_error = $2,
          available_at = now() + interval '5 seconds'
      where id = $1`,
-    [id, message.slice(0, 1000)],
+    [id, safeSummary],
   );
 }
