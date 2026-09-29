@@ -111,3 +111,8 @@ context back into the SDK adapter so a runtime may reconstruct a session after
 process loss. Cloud/container process startup remains a deployment concern for
 the later deployment phase; this phase intentionally exposes a testable factory
 rather than adding a second process manager.
+
+The callback token is never materialized as Cordis plugin config. The bridge
+plugin reads `RW_AGENT_CALLBACK_TOKEN` directly from its child-process
+environment and fails closed if it is absent. This keeps the short-lived secret
+out of profile/config inventory surfaces as well as Workbench persistence.

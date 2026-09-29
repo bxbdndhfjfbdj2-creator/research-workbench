@@ -45,5 +45,4 @@
       config:
         runId: !!js "process.env.RW_AGENT_RUN_ID ?? ''"
         endpoint: !!js "process.env.RW_AGENT_CALLBACK_ENDPOINT ?? ''"
-        callbackToken: !!js "process.env.RW_AGENT_CALLBACK_TOKEN ?? ''"
         pollIntervalMs: 750

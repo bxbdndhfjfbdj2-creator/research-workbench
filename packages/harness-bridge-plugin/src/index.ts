@@ -116,7 +116,6 @@ export const inject = ["userQuestions", "approval"];
 export type Config = {
   runId: string;
   endpoint: string;
-  callbackToken: string;
   pollIntervalMs?: number;
 };
 
@@ -125,10 +124,14 @@ type CordisLikeContext = {
 };
 
 export function apply(ctx: CordisLikeContext, config: Config): void {
+  const callbackToken = process.env.RW_AGENT_CALLBACK_TOKEN?.trim();
+  if (!callbackToken) {
+    throw new Error("Missing RW_AGENT_CALLBACK_TOKEN for Workbench human bridge");
+  }
   const handlers = createBridgeHandlers({
     runId: config.runId,
     endpoint: config.endpoint,
-    callbackToken: config.callbackToken,
+    callbackToken,
     pollIntervalMs: config.pollIntervalMs,
   });
   ctx.on("user-questions/request", (request) =>
