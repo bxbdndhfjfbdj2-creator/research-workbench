@@ -761,7 +761,7 @@ Knowledge ingestion 消费的是 `FILE_PARSE_COMPLETED` + immutable FileVersion�
 
 ## 30. 自检
 
-- 无 TBD / TODO / 待定占位符。
+- 无未解决占位符。
 - 本规格只覆盖 4A，未把 Review/Progress/Ontology 实现混入一个过大的计划。
 - AI-native 主线保持不变。
 - 真实 Agent API 不是本阶段运行前置条件。
