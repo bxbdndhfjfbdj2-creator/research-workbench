@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
-import { createBridgeHandlers } from "./index";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { apply, createBridgeHandlers } from "./index";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -9,6 +11,52 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("Research Workbench Harness human bridge", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.RW_AGENT_CALLBACK_TOKEN;
+  });
+
+  it("keeps the callback token out of plugin config and reads it only from the child environment", async () => {
+    process.env.RW_AGENT_CALLBACK_TOKEN = "env-only-callback-secret";
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) =>
+      jsonResponse({
+        status: "answered",
+        interactionId: "interaction-env-token",
+        answer: "allowed-once",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+
+    let approvalHandler: ((request: unknown) => Promise<unknown>) | undefined;
+    apply(
+      {
+        on(event, handler) {
+          if (event === "approval/request") approvalHandler = handler;
+        },
+      },
+      {
+        runId: "run-env-token",
+        endpoint: "https://workbench.internal/api/internal/agent-interaction",
+        pollIntervalMs: 0,
+      },
+    );
+
+    expect(approvalHandler).toBeTypeOf("function");
+    await expect(
+      approvalHandler?.({ toolName: "bash", reason: "controlled command" }),
+    ).resolves.toBe("allowed-once");
+    expect(fetchImpl.mock.calls[0]?.[1]?.headers).toMatchObject({
+      authorization: "Bearer env-only-callback-secret",
+    });
+
+    const profile = await readFile(
+      resolve(process.cwd(), "infra/harness/workbench.cordis.yml"),
+      "utf8",
+    );
+    expect(profile).not.toContain("callbackToken:");
+    expect(profile).toContain("RW_AGENT_CALLBACK_TOKEN");
+  });
+
   it("persists a user question, polls with the same nonce, and returns the human answer", async () => {
     const requests: Array<{ url: string; init: RequestInit; body: Record<string, unknown> }> = [];
     const fetchImpl = vi
