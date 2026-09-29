@@ -35,12 +35,20 @@ test("major AI proposal changes official theory only after two human approvals",
   await expect(page.getByText("变更正式理论", { exact: true })).toBeVisible();
   await expect(page.getByText("AI 提议", { exact: true })).toBeVisible();
   await expect(page.getByText("待项目主理人审批", { exact: true })).toBeVisible();
-  await expect(page.getByText("旧版正式理论", { exact: true })).toBeVisible();
-  await expect(page.getByText("新版候选理论", { exact: true })).toBeVisible();
+  await expect(
+    page.getByTestId("official-revisions").getByText("旧版正式理论", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId("scientific-decision")
+      .filter({ hasText: "变更正式理论" })
+      .getByText("新版候选理论", { exact: true }),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "主理人批准" }).click();
   await expect(page.getByText("等待总负责人批准", { exact: true })).toBeVisible();
-  await expect(page.getByText("旧版正式理论", { exact: true })).toBeVisible();
+  await expect(
+    page.getByTestId("official-revisions").getByText("旧版正式理论", { exact: true }),
+  ).toBeVisible();
 
   await page.context().clearCookies();
   await login(page, environment.lead.email, environment.lead.password);
@@ -50,11 +58,19 @@ test("major AI proposal changes official theory only after two human approvals",
   await expect(page.getByText("变更正式理论", { exact: true })).toBeVisible();
   await expect(page.getByText("等待总负责人批准", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "总负责人批准" }).click();
-  await expect(page.getByText("已批准", { exact: true })).toBeVisible();
+  await expect(
+    page.getByTestId("scientific-decision")
+      .filter({ hasText: "变更正式理论" })
+      .getByText("已批准", { exact: true }),
+  ).toBeVisible();
 
   await page.goto(`/projects/${projectLead.projectId}/decisions`);
-  await expect(page.getByText("新版候选理论", { exact: true })).toBeVisible();
-  await expect(page.getByText("旧版正式理论", { exact: true })).toBeVisible();
+  await expect(
+    page.getByTestId("official-revisions").getByText("新版候选理论", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId("official-history").getByText("旧版正式理论", { exact: true }),
+  ).toBeVisible();
   await expect(page.getByText("历史正式版本", { exact: true })).toBeVisible();
 });
 
