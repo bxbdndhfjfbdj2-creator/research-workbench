@@ -55,9 +55,10 @@ test("evidence page keeps result provenance visible", async ({ page }) => {
   await page.goto(`/projects/${researcher.projectId}/evidence`);
 
   await expect(page.getByRole("heading", { name: "证据与结果" })).toBeVisible();
-  await expect(page.getByText("data:v1", { exact: true })).toBeVisible();
-  await expect(page.getByText("acceptance-run-1", { exact: true })).toBeVisible();
-  await expect(page.getByText("0123456789abcdef0123456789abcdef01234567", { exact: true })).toBeVisible();
+  const originalResult = page.getByTestId("research-result").filter({ hasText: "acceptance-run-1" });
+  await expect(originalResult.getByText("data:v1", { exact: true })).toBeVisible();
+  await expect(originalResult.getByText("acceptance-run-1", { exact: true })).toBeVisible();
+  await expect(originalResult.getByText("0123456789abcdef0123456789abcdef01234567", { exact: true })).toBeVisible();
   await expect(page.getByText("支持", { exact: true })).toBeVisible();
   await expect(page.getByText("竞争机制 A", { exact: true })).toBeVisible();
 });

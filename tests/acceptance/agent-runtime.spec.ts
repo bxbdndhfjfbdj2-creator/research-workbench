@@ -40,7 +40,7 @@ test("project intelligent work shows tasks, attempts, frozen context and durable
   await expect(page.getByText("session-acceptance-waiting", { exact: true })).toBeVisible();
   await expect(page.getByText("artifact:agent-summary", { exact: true })).toBeVisible();
   await expect(page.getByText("样本构成变化解释了主要差异。", { exact: true })).toBeVisible();
-  await expect(page.getByText("4878cdabd87d4041bdaff61d04c966883b9fd07a", { exact: true })).toBeVisible();
+  await expect(page.getByText("4878cdabd87d4041bdaff61d04c966883b9fd07a", { exact: true }).first()).toBeVisible();
 });
 
 test("retry preserves failed attempt one and creates attempt two", async ({ page }) => {

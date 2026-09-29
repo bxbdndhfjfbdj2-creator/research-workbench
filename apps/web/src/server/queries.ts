@@ -586,3 +586,223 @@ export async function listAttentionDecisions(
 export function getWebDbClient() {
   return webDb();
 }
+
+
+export type AgentWorkRunView = {
+  id: string;
+  attemptNumber: number;
+  state: string;
+  failureCode: string | null;
+  contextSnapshotId: string | null;
+  snapshot: {
+    researchQuestionRevisionId: string | null;
+    theoryRevisionId: string | null;
+    researchDesignRevisionId: string | null;
+    dataVersionRef: string | null;
+    assetVersionRefs: string[];
+    gitBaseCommit: string | null;
+    skillVersionRefs: string[];
+    harnessVersion: string;
+    harnessProfile: string;
+    runtimeProfile: string;
+    modelRoute: string;
+    sandboxPolicy: string;
+    toolAllowlist: string[];
+    subagentAllowlist: string[];
+  } | null;
+  session: {
+    sessionId: string;
+    generation: number;
+  } | null;
+  artifacts: Array<{ kind: string; payload: unknown }>;
+  researchResult: {
+    id: string;
+    dataVersionRef: string;
+    executionKind: string;
+    gitCommitSha: string | null;
+  } | null;
+  interaction: {
+    id: string;
+    kind: "question" | "approval";
+    payload: unknown;
+  } | null;
+};
+
+export type AgentWorkTaskView = {
+  id: string;
+  researchTaskId: string;
+  researchTaskTitle: string;
+  objective: string;
+  expectedOutput: string | null;
+  runs: AgentWorkRunView[];
+};
+
+export type ProjectAgentWorkViewModel = {
+  researchTasks: Array<{ id: string; title: string; status: string }>;
+  agentTasks: AgentWorkTaskView[];
+};
+
+function stringFromRequest(value: unknown, key: string): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const candidate = (value as Record<string, unknown>)[key];
+  return typeof candidate === "string" && candidate.trim() ? candidate : null;
+}
+
+async function loadAgentRuns(agentTaskId: string): Promise<AgentWorkRunView[]> {
+  const db = webDb();
+  const rows = await db.sql.unsafe(
+    `select r.id, r.attempt_number, r.state, r.failure_code, r.context_snapshot_id,
+            s.research_question_revision_id, s.theory_revision_id,
+            s.research_design_revision_id, s.data_version_ref, s.asset_version_refs,
+            s.git_base_commit, s.skill_version_refs, s.harness_version,
+            s.harness_profile, s.runtime_profile, s.model_route, s.sandbox_policy,
+            s.tool_allowlist, s.subagent_allowlist,
+            hs.session_id, hs.generation,
+            rr.id as result_id, rr.data_version_ref as result_data_version_ref,
+            rr.execution_kind as result_execution_kind, rr.git_commit_sha,
+            hi.id as interaction_id, hi.kind as interaction_kind,
+            hi.payload as interaction_payload
+     from agent_runs r
+     left join agent_context_snapshots s on s.id = r.context_snapshot_id
+     left join lateral (
+       select session_id, generation
+       from harness_session_references
+       where run_id = r.id
+       order by generation desc
+       limit 1
+     ) hs on true
+     left join lateral (
+       select id, data_version_ref, execution_kind, git_commit_sha
+       from research_results
+       where run_ref = r.id
+       order by created_at desc
+       limit 1
+     ) rr on true
+     left join lateral (
+       select id, kind, payload
+       from agent_human_interactions
+       where run_id = r.id and state = 'pending'
+       order by created_at desc
+       limit 1
+     ) hi on true
+     where r.agent_task_id = $1
+     order by r.attempt_number asc`,
+    [agentTaskId],
+  );
+
+  return Promise.all(rows.map(async (row) => {
+    const artifactRows = await db.sql.unsafe(
+      `select kind, payload
+       from agent_run_artifacts
+       where run_id = $1
+       order by created_at asc, id asc`,
+      [String(row.id)],
+    );
+    return {
+      id: String(row.id),
+      attemptNumber: Number(row.attempt_number),
+      state: String(row.state),
+      failureCode: row.failure_code ? String(row.failure_code) : null,
+      contextSnapshotId: row.context_snapshot_id ? String(row.context_snapshot_id) : null,
+      snapshot: row.context_snapshot_id
+        ? {
+            researchQuestionRevisionId: row.research_question_revision_id ? String(row.research_question_revision_id) : null,
+            theoryRevisionId: row.theory_revision_id ? String(row.theory_revision_id) : null,
+            researchDesignRevisionId: row.research_design_revision_id ? String(row.research_design_revision_id) : null,
+            dataVersionRef: row.data_version_ref ? String(row.data_version_ref) : null,
+            assetVersionRefs: Array.isArray(row.asset_version_refs) ? row.asset_version_refs as string[] : [],
+            gitBaseCommit: row.git_base_commit ? String(row.git_base_commit) : null,
+            skillVersionRefs: Array.isArray(row.skill_version_refs) ? row.skill_version_refs as string[] : [],
+            harnessVersion: String(row.harness_version),
+            harnessProfile: String(row.harness_profile),
+            runtimeProfile: String(row.runtime_profile),
+            modelRoute: String(row.model_route),
+            sandboxPolicy: String(row.sandbox_policy),
+            toolAllowlist: Array.isArray(row.tool_allowlist) ? row.tool_allowlist as string[] : [],
+            subagentAllowlist: Array.isArray(row.subagent_allowlist) ? row.subagent_allowlist as string[] : [],
+          }
+        : null,
+      session: row.session_id
+        ? { sessionId: String(row.session_id), generation: Number(row.generation) }
+        : null,
+      artifacts: artifactRows.map((artifact) => ({
+        kind: String(artifact.kind),
+        payload: artifact.payload,
+      })),
+      researchResult: row.result_id
+        ? {
+            id: String(row.result_id),
+            dataVersionRef: String(row.result_data_version_ref),
+            executionKind: String(row.result_execution_kind),
+            gitCommitSha: row.git_commit_sha ? String(row.git_commit_sha) : null,
+          }
+        : null,
+      interaction: row.interaction_id
+        ? {
+            id: String(row.interaction_id),
+            kind: row.interaction_kind as "question" | "approval",
+            payload: row.interaction_payload,
+          }
+        : null,
+    };
+  }));
+}
+
+export async function getProjectAgentWork(
+  member: CurrentMember,
+  projectId: string,
+): Promise<ProjectAgentWorkViewModel | null> {
+  const db = webDb();
+  try {
+    await authorizeProjectAccess(db.sql, member.id, projectId, "read");
+  } catch {
+    return null;
+  }
+
+  const researchTaskRows = await db.sql.unsafe(
+    `select id, title, status
+     from research_tasks
+     where project_id = $1
+     order by created_at asc, id asc`,
+    [projectId],
+  );
+  const agentTaskRows = await db.sql.unsafe(
+    `select at.id, at.research_task_id, at.request, rt.title as research_task_title
+     from agent_tasks at
+     join research_tasks rt on rt.id = at.research_task_id
+     where at.project_id = $1
+     order by at.created_at desc, at.id desc`,
+    [projectId],
+  );
+
+  return {
+    researchTasks: researchTaskRows.map((row) => ({
+      id: String(row.id),
+      title: String(row.title),
+      status: String(row.status),
+    })),
+    agentTasks: await Promise.all(agentTaskRows.map(async (row) => ({
+      id: String(row.id),
+      researchTaskId: String(row.research_task_id),
+      researchTaskTitle: String(row.research_task_title),
+      objective: stringFromRequest(row.request, "objective") ?? "未命名智能工作",
+      expectedOutput: stringFromRequest(row.request, "expectedOutput"),
+      runs: await loadAgentRuns(String(row.id)),
+    }))),
+  };
+}
+
+export async function listAgentWorkCenter(member: CurrentMember) {
+  const projects = await listVisibleProjects(member);
+  const rows = await Promise.all(projects.map(async (project) => ({
+    project,
+    work: await getProjectAgentWork(member, project.id),
+  })));
+  return rows
+    .filter((row) => row.work && row.work.agentTasks.length > 0)
+    .map((row) => ({
+      projectId: row.project.id,
+      projectTitle: row.project.title,
+      agentTasks: row.work!.agentTasks,
+    }));
+}
