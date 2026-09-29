@@ -1,6 +1,6 @@
 import type { DatabaseSql } from "@research-workbench/db/src/client";
 
-export type ProjectAction = "read" | "write";
+export type ProjectAction = "read" | "write" | "file_write";
 
 type AccessRow = {
   organization_role: "lead" | "researcher";
@@ -40,7 +40,13 @@ export async function authorizeProjectAccess(
   }
 
   if (action === "read") return;
-  if (access.membership_role === "lead") return;
+  if (action === "file_write" && ["lead", "collaborator"].includes(access.membership_role ?? "")) {
+    return;
+  }
+  if (action === "write" && access.membership_role === "lead") return;
 
+  if (action === "file_write") {
+    throw new Error("Forbidden: this project role cannot modify research files");
+  }
   throw new Error("Forbidden: only the team lead or project lead may modify formal project state");
 }
