@@ -1,8 +1,8 @@
 import type {
   AgentContextSnapshot,
   AgentSandboxPolicy,
-} from "@research-workbench/domain/src/agent-runtime";
-import type { JsonValue } from "@research-workbench/domain/src/events";
+} from "../../domain/src/agent-runtime";
+import type { JsonValue } from "../../domain/src/events";
 
 export type HarnessStopReason =
   | "completed"
