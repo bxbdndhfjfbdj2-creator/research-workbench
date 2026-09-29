@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 describe("file upload hook HTTP boundary", () => {
   it("normalizes pre-create with null id, no storage and token from the client-request header", async () => {
-    const modulePath = "./route";
+    const modulePath = "./normalize";
     const route = await import(modulePath);
 
     const normalized = route.normalizeTusdHookRequest(
@@ -42,7 +42,7 @@ describe("file upload hook HTTP boundary", () => {
   });
 
   it("normalizes post-finish S3 facts and can use an explicitly forwarded direct header", async () => {
-    const modulePath = "./route";
+    const modulePath = "./normalize";
     const route = await import(modulePath);
 
     const normalized = route.normalizeTusdHookRequest(
@@ -86,7 +86,7 @@ describe("file upload hook HTTP boundary", () => {
   });
 
   it("ignores unrelated hook types instead of persisting them", async () => {
-    const modulePath = "./route";
+    const modulePath = "./normalize";
     const route = await import(modulePath);
 
     expect(
