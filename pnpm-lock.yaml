@@ -89,6 +89,12 @@ importers:
       '@research-workbench/domain':
         specifier: workspace:*
         version: link:../domain
+      '@research-workbench/file-processing':
+        specifier: workspace:*
+        version: link:../file-processing
+      '@research-workbench/storage':
+        specifier: workspace:*
+        version: link:../storage
 
   packages/config: {}
 
