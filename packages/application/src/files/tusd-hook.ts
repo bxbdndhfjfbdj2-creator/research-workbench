@@ -55,7 +55,7 @@ function validateHookShape(hook: NormalizedTusHook): void {
     if (hook.upload.id === null) {
       throw new Error("Tus post-finish upload id is required");
     }
-    requireNonEmpty(tusUploadId, "Tus upload id");
+    requireNonEmpty(hook.upload.id, "Tus upload id");
   } else {
     throw new Error("Unsupported tus hook type");
   }
@@ -159,7 +159,11 @@ function assertPostFinishStorage(
   }
 }
 
-function sanitizedInboxPayload(hook: NormalizedTusHook): JsonValue {
+function sanitizedInboxPayload(
+  hook: NormalizedTusHook,
+  tusUploadId: string,
+  storage: { type: string; bucket: string; key: string },
+): JsonValue {
   return {
     type: hook.type,
     upload: {
@@ -237,7 +241,7 @@ export async function handleTusHook(
       [
         proposedInboxId,
         `${tusUploadId}:post-finish`,
-        JSON.stringify(sanitizedInboxPayload(hook)),
+        JSON.stringify(sanitizedInboxPayload(hook, tusUploadId, storage)),
       ],
     );
 
