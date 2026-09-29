@@ -73,7 +73,7 @@ No Phase 4A plan task adds GROBID, pgvector, Jena/Fuseki or Oxigraph as runtime 
 2. **Concurrent new-version finalization:** two accepted uploads for the same ResearchFile must allocate distinct monotonic version numbers and currentVersionId must point to the highest committed version; Task 1 and Task 7 pin this.
 3. **Forged callback/storage locator:** a caller must not smuggle an arbitrary bucket/key, oversized object or stale upload token into processing; Task 5 validates signed intent, expected byte size, quarantine bucket and prefix.
 4. **Scanner/parser failure:** scanner unavailable or malware must never expose ready bytes; Docling/Tika parse failure must preserve the accepted file and produce explicit retry/ready_with_parse_error semantics; Task 6 and Task 7 pin this.
-5. **Sensitive-data leakage / governance escalation:** restricted locator credentials, upload tokens, raw text and presigned secrets must not reach ResearchEvent/Outbox/logs, and parser output must not create ResearchResult/ScientificDecision; Task 2, Task 5, Task 7 and Task 9 pin this.
+5. **Sensitive-data leakage / governance escalation:** restricted locator credentials, upload tokens, raw text and presigned secrets must not reach ResearchEvent/Outbox/logs, and parser output must not create ResearchResult/ScientificDecision; Task 2, Task 5, Task 7, Task 10 and Task 13 pin this.
 
 ---
 
@@ -136,6 +136,7 @@ No Phase 4A plan task adds GROBID, pgvector, Jena/Fuseki or Oxigraph as runtime 
 
 - Create apps/web/app/api/internal/file-upload-hook/route.ts — private tusd HTTP hook endpoint.
 - Create apps/web/app/api/files/[fileVersionId]/content/route.ts — authenticated range-capable content stream/download.
+- Create apps/web/src/server/file-storage.ts — server-only S3-compatible ObjectStoragePort composition for content streaming.
 - Create apps/web/app/(app)/projects/[projectId]/files/page.tsx.
 - Create apps/web/app/(app)/projects/[projectId]/files/[researchFileId]/page.tsx.
 - Create apps/web/src/server/file-actions.ts.
@@ -610,7 +611,7 @@ Expected: FAIL.
 
 Route requirements:
 - accept only application/json;
-- read forwarded X-Workbench-Upload-Token but strip it before normalization;
+- read X-Workbench-Upload-Token from the hook JSON at Event.HTTPRequest.Header (or, only when tusd is explicitly configured with -hooks-http-forward-headers, from the direct hook request header), then strip it before normalized persistence;
 - invoke handleTusHook for both pre-create and post-finish;
 - return JSON Content-Type required by tusd;
 - no long-running scan/parse inside the HTTP hook;
@@ -737,6 +738,8 @@ git commit -m "feat: add file processing adapters"
 - Create: packages/application/src/files/process-upload.test.ts
 - Create: packages/application/src/files/search-projection.ts
 - Create: apps/worker/src/file-worker.ts
+- Modify: packages/application/package.json — add workspace dependencies on @research-workbench/storage and @research-workbench/file-processing
+- Modify: pnpm-lock.yaml
 - Test: tests/integration/file-processing-idempotency.test.ts
 
 **Interfaces:**
@@ -840,7 +843,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ~~~bash
-git add packages/application/src/files/process-upload.ts packages/application/src/files/process-upload.test.ts packages/application/src/files/search-projection.ts apps/worker/src/file-worker.ts tests/integration/file-processing-idempotency.test.ts
+git add packages/application/src/files/process-upload.ts packages/application/src/files/process-upload.test.ts packages/application/src/files/search-projection.ts packages/application/package.json apps/worker/src/file-worker.ts tests/integration/file-processing-idempotency.test.ts pnpm-lock.yaml
 git commit -m "feat: process quarantined research files"
 ~~~
 
@@ -852,8 +855,7 @@ git commit -m "feat: process quarantined research files"
 - Create: apps/worker/src/file-runtime.ts
 - Create: apps/worker/src/file-runtime.test.ts
 - Modify: apps/worker/src/main.ts
-- Modify: apps/worker/package.json
-- Modify: packages/application/package.json as needed for port dependencies
+- Modify: apps/worker/package.json — add workspace dependencies on storage/file-processing adapters used by production composition
 - Modify: packages/config/src/env.ts
 - Modify: pnpm-lock.yaml
 
@@ -927,7 +929,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ~~~bash
-git add apps/worker/src/file-runtime.ts apps/worker/src/file-runtime.test.ts apps/worker/src/main.ts apps/worker/package.json packages/application/package.json packages/config/src/env.ts packages/config/src/env.test.ts pnpm-lock.yaml
+git add apps/worker/src/file-runtime.ts apps/worker/src/file-runtime.test.ts apps/worker/src/main.ts apps/worker/package.json packages/config/src/env.ts packages/config/src/env.test.ts pnpm-lock.yaml
 git commit -m "feat: compose file processing worker"
 ~~~
 
@@ -939,8 +941,9 @@ git commit -m "feat: compose file processing worker"
 - Create: packages/application/src/files/content-access.ts
 - Create: packages/application/src/files/content-access.test.ts
 - Create: apps/web/app/api/files/[fileVersionId]/content/route.ts
+- Create: apps/web/src/server/file-storage.ts
 - Create: apps/web/src/components/files/pdf-preview.tsx
-- Modify: apps/web/package.json
+- Modify: apps/web/package.json — add workspace storage dependency and exact pdfjs-dist pin
 - Modify: pnpm-lock.yaml
 
 **Interfaces:**
@@ -978,7 +981,7 @@ Expected: FAIL.
 Route must:
 - resolve logged-in CurrentMember;
 - call getFileContentDescriptor;
-- pass Range to ObjectStoragePort.readObject;
+- obtain the server-only ObjectStoragePort from apps/web/src/server/file-storage.ts and pass Range to readObject;
 - return 206 + Content-Range when appropriate;
 - set nosniff and safe Content-Disposition;
 - never redirect to a long-lived/public object URL.
@@ -988,16 +991,16 @@ Expected: PASS.
 
 - [ ] **Step 3: Add RED PDF preview acceptance component test target**
 
-Add pdfjs-dist 6.3.289 exactly. Implement PdfPreview as a client component that loads only the authenticated Workbench content URL and renders at least page 1 with PDF.js; do not send source URLs to third-party viewers.
+First add PdfPreview and reference it from the file-detail surface while importing pdfjs-dist, but do not add the dependency yet. The component must load only the authenticated Workbench content URL and target at least page 1; do not send source URLs to third-party viewers.
 
-The browser proof is completed in Task 12; here pnpm build is the RED/GREEN gate for the worker bundle and Next.js client/server boundary.
+The browser proof is completed in Task 12; here the intentional missing dependency gives the RED build gate.
 
 Run: pnpm build  
-Expected before wiring: FAIL for missing module/component integration.
+Expected: FAIL with module resolution for pdfjs-dist.
 
 - [ ] **Step 4: Wire PDF.js worker and make production build GREEN**
 
-Use PDF.js packaged worker from pdfjs-dist; no CDN.
+Add pdfjs-dist 6.3.289 exactly and wire its packaged worker; no CDN.
 
 Run:
 - pnpm build
@@ -1008,7 +1011,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ~~~bash
-git add packages/application/src/files/content-access.ts packages/application/src/files/content-access.test.ts apps/web/app/api/files/[fileVersionId]/content/route.ts apps/web/src/components/files/pdf-preview.tsx apps/web/package.json pnpm-lock.yaml
+git add packages/application/src/files/content-access.ts packages/application/src/files/content-access.test.ts apps/web/app/api/files/[fileVersionId]/content/route.ts apps/web/src/server/file-storage.ts apps/web/src/components/files/pdf-preview.tsx apps/web/package.json pnpm-lock.yaml
 git commit -m "feat: add secure file content preview"
 ~~~
 
@@ -1018,7 +1021,7 @@ git commit -m "feat: add secure file content preview"
 
 **Files:**
 - Modify: apps/web/src/server/queries.ts
-- Create: packages/application/src/files/file-read-model.test.ts
+- Create: apps/web/src/server/file-queries.test.ts
 
 **Interfaces:**
 - Produces:
@@ -1064,7 +1067,7 @@ Assert:
 - team lead/project lead/creator can see those restricted metadata fields;
 - retired link is shown in audit history but excluded from active link count.
 
-Run: pnpm exec vitest run packages/application/src/files/file-read-model.test.ts  
+Run: pnpm exec vitest run apps/web/src/server/file-queries.test.ts  
 Expected: FAIL.
 
 - [ ] **Step 2: Implement query helpers following existing explicit-SQL style**
@@ -1090,7 +1093,7 @@ Expected: FAIL until normalization is complete.
 Bound query length and parameterize all SQL.
 
 Run:
-- pnpm exec vitest run packages/application/src/files/file-read-model.test.ts
+- pnpm exec vitest run apps/web/src/server/file-queries.test.ts
 - pnpm typecheck
 
 Expected: PASS.
@@ -1098,7 +1101,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ~~~bash
-git add apps/web/src/server/queries.ts packages/application/src/files/file-read-model.test.ts
+git add apps/web/src/server/queries.ts apps/web/src/server/file-queries.test.ts
 git commit -m "feat: query and search research files"
 ~~~
 
@@ -1108,6 +1111,7 @@ git commit -m "feat: query and search research files"
 
 **Files:**
 - Create: apps/web/src/server/file-actions.ts
+- Create: apps/web/src/server/file-actions.test.ts
 - Create: apps/web/src/components/files/file-upload-form.tsx
 - Create: apps/web/src/components/files/external-reference-form.tsx
 - Create: apps/web/src/components/files/file-list.tsx
@@ -1132,7 +1136,7 @@ Create focused tests for file-actions helpers proving:
 - link action permits only approved subject/relation values;
 - all actions resolve CurrentMember server-side and never trust actor ID from form data.
 
-Run the new file-actions test.  
+Run: pnpm exec vitest run apps/web/src/server/file-actions.test.ts  
 Expected: FAIL.
 
 - [ ] **Step 2: Implement server actions and Uppy intent handoff**
@@ -1176,7 +1180,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ~~~bash
-git add apps/web/src/server/file-actions.ts apps/web/src/components/files apps/web/app/(app)/projects/[projectId]/files apps/web/src/components/project-navigation.tsx apps/web/package.json pnpm-lock.yaml
+git add apps/web/src/server/file-actions.ts apps/web/src/server/file-actions.test.ts apps/web/src/components/files apps/web/app/(app)/projects/[projectId]/files apps/web/src/components/project-navigation.tsx apps/web/package.json pnpm-lock.yaml
 git commit -m "feat: add research file workspace"
 ~~~
 
