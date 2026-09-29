@@ -150,6 +150,67 @@ describe("SdkHarnessAdapter", () => {
     });
   });
 
+  it("injects a per-Run Workbench human bridge credential only into the Harness child environment", async () => {
+    let launch: SdkRuntimeFactoryOptions | undefined;
+    let prompt = "";
+    const runtime: SdkRuntime = {
+      async start() {},
+      async run(input, options) {
+        prompt = input;
+        return {
+          sessionId: options.sessionId,
+          finalResponse: JSON.stringify({
+            visibleMessageSummary: "done",
+            toolFacts: [],
+            artifactRefs: [],
+            githubHints: [],
+            scientificChangeProposals: [],
+            stopReason: "completed",
+          }),
+          events: [],
+          notifications: [],
+        };
+      },
+      async close() {},
+    };
+
+    const adapter = new SdkHarnessAdapter({
+      dshBin: "/opt/pinned/dsh/lib/bin.js",
+      dshHome: "/var/lib/research-workbench/dsh",
+      profile: "sdk",
+      patchPaths: ["/app/infra/harness/workbench.cordis.yml"],
+      provider: "deepseek-official",
+      model: "deepseek-v4-flash",
+      pinnedHarnessVersion: "4878cdabd87d4041bdaff61d04c966883b9fd07a",
+      allowedEnvironmentNames: ["PATH"],
+      processEnv: { PATH: "/usr/bin" },
+      runtimeFactory(options) {
+        launch = options;
+        return runtime;
+      },
+      async resolveHumanInteractionBridge(runRequest) {
+        expect(runRequest.runId).toBe("run-sdk");
+        return {
+          endpoint: "https://workbench.internal/api/internal/agent-interaction",
+          callbackToken: "ephemeral-callback-secret",
+        };
+      },
+      async recordSessionReference() {},
+    });
+
+    await adapter.start({ ...request, envAllowlist: ["PATH"] });
+
+    expect(launch?.env).toMatchObject({
+      PATH: "/usr/bin",
+      RW_AGENT_RUN_ID: "run-sdk",
+      RW_AGENT_CALLBACK_ENDPOINT:
+        "https://workbench.internal/api/internal/agent-interaction",
+      RW_AGENT_CALLBACK_TOKEN: "ephemeral-callback-secret",
+    });
+    expect(prompt).not.toContain("ephemeral-callback-secret");
+    expect(JSON.stringify(request)).not.toContain("ephemeral-callback-secret");
+  });
+
   it("rejects an environment name outside the deployment allowlist before starting Harness", async () => {
     let factoryCalls = 0;
     const adapter = new SdkHarnessAdapter({

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { initializeFoundationDatabase } from "../../packages/db/src/client";
 import { createResearchTask } from "../../packages/application/src/tasks/research-task-service";
+import { createResearchNode, createNodeRevision } from "../../packages/application/src/research-graph/node-service";
 import { createAgentTask } from "../../packages/application/src/agents/create-agent-task";
 import { createAgentRun } from "../../packages/application/src/agents/create-agent-run";
 import { buildAgentContextSnapshot } from "../../packages/application/src/agents/context-snapshot";
@@ -175,6 +176,93 @@ describe("AgentRun dispatch idempotency", () => {
       [(await testDb.client.sql.unsafe("select agent_task_id from agent_runs where id = $1", [run.id]))[0]?.agent_task_id],
     );
     expect(attempts[0]?.count).toBe(1);
+  });
+
+  it("rolls back all completed-output facts when scientific proposal ingestion fails", async () => {
+    const analysisNode = await createResearchNode(
+      testDb.client.sql,
+      projectId,
+      "分析方案",
+      "派发原子性分析方案",
+      actor,
+    );
+    const analysisRevision = await createNodeRevision(
+      testDb.client.sql,
+      analysisNode.id,
+      { summary: "原子性分析方案 v1" },
+      "候选",
+      actor,
+    );
+    const run = await createQueuedRun("完成结果原子落库");
+    const adapter = new CountingFakeAdapter([
+      {
+        state: "completed",
+        sessionId: "session-atomic",
+        result: {
+          visibleMessageSummary: "Harness 已完成，但 proposal 非法",
+          toolFacts: [{ tool: "read_file", summary: "读取输入" }],
+          artifactRefs: ["artifact:must-rollback"],
+          githubHints: [],
+          researchResult: {
+            dataVersionRef: "data:v1",
+            analysisRevisionId: analysisRevision.id,
+            executionKind: "manual",
+            outputRefs: ["artifact:must-rollback"],
+          },
+          scientificChangeProposals: [
+            {
+              title: "非法正式理论变更",
+              reason: "用于验证事务回滚",
+              evidence: [],
+              impact: ["正式理论"],
+              change: {
+                kind: "official_revision",
+                slot: "正式理论",
+                revisionId: "missing-revision",
+              },
+            },
+          ],
+          stopReason: "completed",
+        },
+      },
+    ]);
+
+    await expect(
+      dispatchAgentRun(testDb.client.sql, adapter, run.id),
+    ).rejects.toThrow(/revision|project|proposal/i);
+
+    const [runRows, artifactRows, resultRows, decisionRows, completionEvents] =
+      await Promise.all([
+        testDb.client.sql.unsafe(
+          "select state, failure_code from agent_runs where id = $1",
+          [run.id],
+        ),
+        testDb.client.sql.unsafe(
+          "select id from agent_run_artifacts where run_id = $1",
+          [run.id],
+        ),
+        testDb.client.sql.unsafe(
+          "select id from research_results where run_ref = $1",
+          [run.id],
+        ),
+        testDb.client.sql.unsafe(
+          "select id from scientific_decisions where proposed_by_type = 'agent' and proposed_by_id = $1",
+          ["agent-run:" + run.id],
+        ),
+        testDb.client.sql.unsafe(
+          "select id from research_events where project_id = $1 and event_type = 'AGENT_RUN_COMPLETED' and payload->>'agentRunId' = $2",
+          [projectId, run.id],
+        ),
+      ]);
+
+    expect(runRows[0]).toMatchObject({
+      state: "失败",
+      failure_code: "INVALID_AGENT_OUTPUT",
+    });
+    expect(artifactRows).toHaveLength(0);
+    expect(resultRows).toHaveLength(0);
+    expect(decisionRows).toHaveLength(0);
+    expect(completionEvents).toHaveLength(0);
   });
 
   it("does not dispatch a completed run again", async () => {
