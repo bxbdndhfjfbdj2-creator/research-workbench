@@ -43,7 +43,9 @@ button, input { font: inherit; }
 }
 .state-pill.muted { color: #747b84; }
 .project-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; }
-.project-nav span { border: 1px solid #dfe3e7; border-radius: 999px; padding: 7px 11px; color: #858b92; font-size: 13px; }
+.project-nav a, .project-nav span { border: 1px solid #dfe3e7; border-radius: 999px; padding: 7px 11px; color: #858b92; font-size: 13px; }
+.project-nav a { color: #39414a; }
+.project-nav a:hover { border-color: #aeb5bc; }
 .project-nav .active { background: #17191c; border-color: #17191c; color: #fff; }
 .panel { margin-top: 16px; }
 .panel h3 { margin: 0 0 16px; }
@@ -73,3 +75,27 @@ form button { border: 0; border-radius: 8px; padding: 11px 14px; background: #17
   .member-chip { margin-top: 0; }
   .workspace { padding: 28px 18px 48px; }
 }
+
+.research-graph-layout { display: grid; gap: 16px; }
+.graph-node-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.graph-node-card, .branch-card, .result-card {
+  border: 1px solid #e5e8eb; border-radius: 12px; padding: 16px; background: #fbfcfd;
+}
+.graph-node-heading, .result-card-heading {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.graph-node-card h4, .branch-card h4 { margin: 10px 0 8px; }
+.node-type { font-size: 12px; color: #687079; }
+.status-label { display: inline-flex; border-radius: 999px; padding: 4px 8px; background: #edf1f4; color: #39414a; font-size: 12px; }
+.status-label.official { background: #17191c; color: #fff; }
+.relation-list, .branch-list, .result-list { display: grid; gap: 10px; }
+.relation-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; align-items: center; border-bottom: 1px solid #edf0f2; padding: 10px 0; }
+.relation-row:last-child { border-bottom: 0; }
+.relation-row strong { border-radius: 999px; background: #edf1f4; padding: 4px 8px; font-size: 12px; }
+.branch-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 16px; }
+.branch-reason { grid-column: 1 / -1; margin: 0; color: #5f6670; }
+.result-card dl { display: grid; gap: 8px; margin: 14px 0 0; }
+.result-card dl div { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 12px; }
+.result-card dt { color: #6f7780; font-size: 12px; }
+.result-card dd { margin: 0; overflow-wrap: anywhere; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
