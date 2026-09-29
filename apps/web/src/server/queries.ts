@@ -30,15 +30,25 @@ function databaseUrl(): string {
   return value;
 }
 
+type WebDbClient = ReturnType<typeof createDbClient>;
+
+const globalWebDb = globalThis as typeof globalThis & {
+  __researchWorkbenchDb?: WebDbClient;
+};
+
+function webDb(): WebDbClient {
+  globalWebDb.__researchWorkbenchDb ??= createDbClient(databaseUrl());
+  return globalWebDb.__researchWorkbenchDb;
+}
+
 export async function getCurrentMember(): Promise<CurrentMember | null> {
   const session = await getWorkbenchAuth().api.getSession({
     headers: await headers(),
   });
   if (!session?.user?.id) return null;
 
-  const db = createDbClient(databaseUrl());
-  try {
-    const rows = await db.sql.unsafe(
+  const db = webDb();
+  const rows = await db.sql.unsafe(
       `select id, team_id, display_name, organization_role
        from members
        where auth_user_id = $1 and active = true and actor_type = 'human'
@@ -48,15 +58,12 @@ export async function getCurrentMember(): Promise<CurrentMember | null> {
     const row = rows[0];
     if (!row) return null;
 
-    return {
-      id: String(row.id),
-      teamId: String(row.team_id),
-      displayName: String(row.display_name),
-      organizationRole: row.organization_role as "lead" | "researcher",
-    };
-  } finally {
-    await db.close();
-  }
+  return {
+    id: String(row.id),
+    teamId: String(row.team_id),
+    displayName: String(row.display_name),
+    organizationRole: row.organization_role as "lead" | "researcher",
+  };
 }
 
 export async function requireCurrentMember(): Promise<CurrentMember> {
@@ -85,9 +92,8 @@ async function loadStates(
 export async function listVisibleProjects(
   member: CurrentMember,
 ): Promise<ProjectSummary[]> {
-  const db = createDbClient(databaseUrl());
-  try {
-    const rows = await db.sql.unsafe(
+  const db = webDb();
+  const rows = await db.sql.unsafe(
       `select distinct p.id, p.title, lead.display_name as lead_name, p.created_at
        from research_projects p
        join research_portfolios rp on rp.id = p.portfolio_id
@@ -100,32 +106,28 @@ export async function listVisibleProjects(
       [member.id, member.teamId, member.organizationRole],
     );
 
-    return Promise.all(
-      rows.map(async (row) => ({
-        id: String(row.id),
-        title: String(row.title),
-        leadName: String(row.lead_name),
-        states: await loadStates(db.sql, String(row.id)),
-      })),
-    );
-  } finally {
-    await db.close();
-  }
+  return Promise.all(
+    rows.map(async (row) => ({
+      id: String(row.id),
+      title: String(row.title),
+      leadName: String(row.lead_name),
+      states: await loadStates(db.sql, String(row.id)),
+    })),
+  );
 }
 
 export async function getProjectOverview(
   member: CurrentMember,
   projectId: string,
 ): Promise<ProjectOverview | null> {
-  const db = createDbClient(databaseUrl());
+  const db = webDb();
   try {
-    try {
-      await authorizeProjectAccess(db.sql, member.id, projectId, "read");
-    } catch {
-      return null;
-    }
+    await authorizeProjectAccess(db.sql, member.id, projectId, "read");
+  } catch {
+    return null;
+  }
 
-    const projects = await db.sql.unsafe(
+  const projects = await db.sql.unsafe(
       `select p.id, p.title, lead.display_name as lead_name
        from research_projects p
        join members lead on lead.id = p.lead_member_id
@@ -145,39 +147,32 @@ export async function getProjectOverview(
       [projectId],
     );
 
-    return {
-      id: String(project.id),
-      title: String(project.title),
-      leadName: String(project.lead_name),
-      states: await loadStates(db.sql, projectId),
-      members: members.map((row) => ({
-        id: String(row.id),
-        displayName: String(row.display_name),
-        role: String(row.role),
-      })),
-    };
-  } finally {
-    await db.close();
-  }
+  return {
+    id: String(project.id),
+    title: String(project.title),
+    leadName: String(project.lead_name),
+    states: await loadStates(db.sql, projectId),
+    members: members.map((row) => ({
+      id: String(row.id),
+      displayName: String(row.display_name),
+      role: String(row.role),
+    })),
+  };
 }
 
 export async function listTeamMembers(member: CurrentMember) {
-  const db = createDbClient(databaseUrl());
-  try {
-    const rows = await db.sql.unsafe(
+  const db = webDb();
+  const rows = await db.sql.unsafe(
       `select id, display_name, email, organization_role
        from members
        where team_id = $1 and active = true and actor_type = 'human'
        order by case when organization_role = 'lead' then 0 else 1 end, display_name asc`,
       [member.teamId],
     );
-    return rows.map((row) => ({
-      id: String(row.id),
-      displayName: String(row.display_name),
-      email: String(row.email),
-      organizationRole: String(row.organization_role),
-    }));
-  } finally {
-    await db.close();
-  }
+  return rows.map((row) => ({
+    id: String(row.id),
+    displayName: String(row.display_name),
+    email: String(row.email),
+    organizationRole: String(row.organization_role),
+  }));
 }
