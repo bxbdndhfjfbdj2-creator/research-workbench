@@ -42,6 +42,13 @@ const RESERVED_SECRET_KEYS = new Set([
   "apikey",
   "authorization",
   "cookie",
+  "accesskeyid",
+  "secretaccesskey",
+  "awsaccesskeyid",
+  "awssecretaccesskey",
+  "sessiontoken",
+  "securitytoken",
+  "awssecuritytoken",
 ]);
 
 function normalizeKey(key: string): string {
