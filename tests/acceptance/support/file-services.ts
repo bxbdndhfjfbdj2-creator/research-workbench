@@ -11,6 +11,7 @@ import { S3ObjectStorage } from "../../../packages/storage/src/s3";
 import {
   GenericContainer,
   Network,
+  Wait,
   type StartedNetwork,
   type StartedTestContainer,
 } from "testcontainers";
@@ -231,6 +232,9 @@ export async function startFileAcceptanceServices(): Promise<StartedFileAcceptan
       .withNetworkAliases("seaweedfs")
       .withCommand(["server", "-s3", "-s3.port=8333"])
       .withExposedPorts(8333)
+      .withWaitStrategy(
+        Wait.forLogMessage(/Start Seaweed S3 API Server .* at http port 8333/),
+      )
       .withStartupTimeout(120_000)
       .start();
 
