@@ -80,6 +80,9 @@ describe("file read models", () => {
   }, 120_000);
 
   afterAll(async () => {
+    if (queries) {
+      await queries.getWebDbClient().close();
+    }
     delete process.env.DATABASE_URL;
     if (testDb) await stopTestDatabase(testDb);
   });
