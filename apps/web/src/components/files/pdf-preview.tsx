@@ -41,7 +41,7 @@ export function PdfPreview({
 
         canvas.width = Math.ceil(viewport.width);
         canvas.height = Math.ceil(viewport.height);
-        await page.render({ canvasContext: context, viewport }).promise;
+        await page.render({ canvas, canvasContext: context, viewport }).promise;
         if (!cancelled) setStatus("ready");
       } catch {
         if (!cancelled) setStatus("error");
