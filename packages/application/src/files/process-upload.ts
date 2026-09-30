@@ -226,7 +226,7 @@ async function finalizeCleanVersion(
        where id = $1
        for update`,
       [intent.id],
-    )) as readonly Array<{ state: string; research_file_id: string | null }>;
+    )) as ReadonlyArray<{ state: string; research_file_id: string | null }>;
     const fresh = freshRows[0];
     if (!fresh) throw new Error("Upload intent disappeared during finalization");
     if (fresh.state === "ready" || fresh.state === "ready_with_parse_error") return;
