@@ -130,7 +130,7 @@ Expected: PASS.
 - Create: `packages/application/src/tasks/task-permissions.ts`
 - Modify: `packages/application/src/tasks/research-task-service.ts`
 - Modify: `packages/application/src/tasks/research-task-service.test.ts`
-- Modify callers of removed `setResearchTaskStatus()` discovered on the current head; do not preserve a public arbitrary-status path for v2.
+- Remove the public `setResearchTaskStatus()` export; `pnpm typecheck` in this task is the authoritative check for any current-head caller that still depends on it. Do not preserve an arbitrary-status compatibility wrapper for v2.
 
 **Interfaces:**
 - `createResearchTask(sql, projectId, input, actor)` creates workflow v2; omitted owner defaults to actor; omitted execution/review settings default to `human` / `none`.
@@ -178,11 +178,12 @@ Use bounded validation constants:
 - max 20 acceptance criteria;
 - each criterion trim-nonempty and ≤ 1,000 chars.
 
-- [ ] **Step 4: Run GREEN**
+- [ ] **Step 4: Run GREEN and compile callers**
 
-Run the Step 2 command.
+Run:
+`pnpm vitest run packages/application/src/tasks/research-task-service.test.ts && pnpm typecheck`
 
-Expected: PASS.
+Expected: PASS; no current-head caller remains bound to the removed arbitrary-status API.
 
 - [ ] **Step 5: Commit**
 
@@ -203,7 +204,7 @@ Expected: PASS.
 - `TaskSubmissionRefInput = { kind: TaskSubmissionRefKind; refId: string; relation: TaskSubmissionRefRelation }`
 - `submitResearchTask(sql, taskId, input, actor) -> Promise<{ submission: TaskSubmission; reviewRequestId: string | null }>`
 - input: `{ summary: string; contributors?: TaskSubmissionContributorInput[]; refs?: TaskSubmissionRefInput[]; reviewerMemberId?: string | null }`
-- Task 3 adds `assertEligibleReviewer(sql, projectId, submissionId, reviewerMemberId)` (or an equivalent transaction-aware helper) to `task-permissions.ts`; required-review Submission creation must validate the initial reviewer before commit.
+- Task 3 adds `assertEligibleReviewer(tx: TransactionSql, projectId: string, submissionId: string, reviewerMemberId: string): Promise<void>` to `task-permissions.ts`; required-review Submission creation must call it before the transaction commits.
 - `reviewPolicy=required` requires a non-null `reviewerMemberId`; `reviewPolicy=none` requires it to be omitted/null and rejects a non-null reviewer value.
 
 - [ ] **Step 1: Write failing submission tests**
@@ -406,7 +407,7 @@ Expected: PASS.
 
 **Files:**
 - Create: `apps/web/src/server/work-queries.ts`
-- Create: `apps/web/src/server/work-queries.test.ts` if server-only import prevents Vitest, otherwise use an application-level query test file under `packages/application/src/tasks/`.
+- Create: `apps/web/src/server/work-queries.test.ts`.
 - Reuse: `apps/web/src/server/queries.ts` exports `CurrentMember`, `getWebDbClient()`, and 4A file authorization behavior without exposing raw restricted metadata.
 
 **Interfaces:**
@@ -459,11 +460,13 @@ Expected: PASS.
 - Create: `apps/web/app/(app)/projects/[projectId]/work/[taskId]/page.tsx`
 - Create: `apps/web/app/(app)/reviews/page.tsx`
 - Modify: `apps/web/src/components/project-navigation.tsx`
+- Modify: `packages/ui/src/index.tsx`
 
 **Interfaces:**
 - Server actions call application services only; no direct business-state UPDATE SQL.
 - Forms cover create/start/block/unblock/cancel/reopen, requirements/mode/policy/owner before lock, formal submit, unreviewed completion, reviewer reassignment, approve/request-changes/reject/escalate.
-- Navigation adds `研究工作`; team Review Inbox is reachable from the app shell/appropriate top-level navigation if one exists, without merging it into `科学决策`.
+- ProjectNavigation adds `研究工作` → `/projects/[projectId]/work`.
+- `packages/ui/src/index.tsx` MAIN_NAVIGATION adds enabled `待我审核` → `/reviews`; do not merge this entry into `科学决策`.
 
 - [ ] **Step 1: Write failing action/input tests**
 
@@ -637,7 +640,7 @@ Expected: PASS.
 
 **Files:**
 - Create: `docs/superpowers/reviews/2026-09-30-phase-04b-verification.md`
-- Possibly update: Phase 4B Draft PR body only; do not merge.
+- GitHub metadata action: search for a Phase 4B PR from `phase/04b-human-hybrid-work-review`; create it as Draft if absent, otherwise update its body. Do not merge.
 
 **Interfaces:**
 - No product APIs; this is the phase gate.
