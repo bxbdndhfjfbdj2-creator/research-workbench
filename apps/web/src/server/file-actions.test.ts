@@ -63,10 +63,10 @@ describe("file server actions", () => {
   });
 
   it("validates new-file upload metadata without accepting raw bytes", async () => {
-    const actions = await import("./file-actions");
+    const inputs = await import("./file-action-input");
 
     expect(() =>
-      actions.parseFileUploadIntentRequest({
+      inputs.parseFileUploadIntentRequest({
         projectId: "project-1",
         title: "",
         fileKind: "literature",
@@ -77,7 +77,7 @@ describe("file server actions", () => {
     ).toThrow(/title/i);
 
     expect(() =>
-      actions.parseFileUploadIntentRequest({
+      inputs.parseFileUploadIntentRequest({
         projectId: "project-1",
         title: "Paper",
         fileKind: "unknown",
@@ -88,7 +88,7 @@ describe("file server actions", () => {
     ).toThrow(/file kind/i);
 
     expect(() =>
-      actions.parseFileUploadIntentRequest({
+      inputs.parseFileUploadIntentRequest({
         projectId: "project-1",
         title: "Paper",
         fileKind: "literature",
@@ -99,7 +99,7 @@ describe("file server actions", () => {
     ).toThrow(/access class/i);
 
     expect(() =>
-      actions.parseFileUploadIntentRequest({
+      inputs.parseFileUploadIntentRequest({
         projectId: "project-1",
         title: "Paper",
         fileKind: "literature",
@@ -110,7 +110,7 @@ describe("file server actions", () => {
     ).toThrow(/filename/i);
 
     expect(() =>
-      actions.parseFileUploadIntentRequest({
+      inputs.parseFileUploadIntentRequest({
         projectId: "project-1",
         title: "Paper",
         fileKind: "literature",
@@ -121,7 +121,7 @@ describe("file server actions", () => {
     ).toThrow(/size/i);
 
     expect(() =>
-      actions.parseFileUploadIntentRequest({
+      inputs.parseFileUploadIntentRequest({
         projectId: "project-1",
         title: "Paper",
         fileKind: "literature",
@@ -134,10 +134,10 @@ describe("file server actions", () => {
   });
 
   it("requires a change summary when creating a new version", async () => {
-    const actions = await import("./file-actions");
+    const inputs = await import("./file-action-input");
 
     expect(() =>
-      actions.parseFileUploadIntentRequest({
+      inputs.parseFileUploadIntentRequest({
         projectId: "project-1",
         researchFileId: "file-1",
         fileKind: "literature",
