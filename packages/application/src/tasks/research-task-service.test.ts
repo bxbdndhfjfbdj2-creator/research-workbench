@@ -48,7 +48,7 @@ describe("research task workflow v2", () => {
         ($2, 'task-team', 'project-lead@task.test', 'Project Lead', 'researcher', 'human', true),
         ($3, 'task-team', 'member@task.test', 'Member', 'researcher', 'human', true),
         ($4, 'task-team', 'other@task.test', 'Other', 'researcher', 'human', true),
-        ($5, 'task-team', 'inactive@task.test', 'Inactive', 'researcher', 'human', false),
+        ($5, 'task-team', 'inactive@task.test', 'Inactive', 'researcher', 'human', true),
         ($6, 'task-team', 'outside@task.test', 'Outside', 'researcher', 'human', true)`,
       [orgLeadId, projectLeadId, memberId, otherId, inactiveId, outsiderId],
     );
@@ -80,6 +80,10 @@ describe("research task workflow v2", () => {
         { type: "human", id: projectLeadId },
       );
     }
+    await testDb.client.sql.unsafe(
+      "update members set active = false where id = $1",
+      [inactiveId],
+    );
 
     await setDimensionState(
       testDb.client.sql,
