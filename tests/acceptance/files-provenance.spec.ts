@@ -211,3 +211,40 @@ test("uploads v2 while preserving immutable v1 download history", async ({ page 
   expect(response.ok()).toBe(true);
   expect(await response.text()).toBe("phase-4a-v1-through-real-tusd");
 });
+
+
+test("links the current file version to research provenance subjects", async ({ page }) => {
+  const researcher = environment.researchers[0];
+  if (!researcher?.projectId) throw new Error("Acceptance project missing");
+
+  await login(page, researcher.email, researcher.password);
+  await page.goto(`/projects/${researcher.projectId}/files`);
+  await page.getByRole("link", { name: "Phase 4A first file", exact: true }).click();
+
+  const links = page.locator("section.panel").filter({
+    has: page.getByRole("heading", { name: "科研对象关联" }),
+  });
+  const form = links.locator("form").first();
+
+  await form.getByLabel("对象类型").selectOption("research_node_revision");
+  await form.getByLabel("Stable ID").fill(environment.fileLinkTargets.researchNodeRevisionId);
+  await form.getByLabel("关系").selectOption("supports");
+  await form.getByRole("button", { name: "创建关联" }).click();
+  await expect(
+    links.getByText(
+      `supports · research_node_revision · ${environment.fileLinkTargets.researchNodeRevisionId}`,
+      { exact: false },
+    ),
+  ).toBeVisible();
+
+  await form.getByLabel("对象类型").selectOption("research_result");
+  await form.getByLabel("Stable ID").fill(environment.fileLinkTargets.researchResultId);
+  await form.getByLabel("关系").selectOption("source_for");
+  await form.getByRole("button", { name: "创建关联" }).click();
+  await expect(
+    links.getByText(
+      `source_for · research_result · ${environment.fileLinkTargets.researchResultId}`,
+      { exact: false },
+    ),
+  ).toBeVisible();
+});
