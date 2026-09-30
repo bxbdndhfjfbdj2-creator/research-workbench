@@ -15,6 +15,7 @@
     "@research-workbench/db": "workspace:*",
     "@research-workbench/domain": "workspace:*",
     "@research-workbench/ui": "workspace:*",
-    "@research-workbench/storage": "workspace:*"
+    "@research-workbench/storage": "workspace:*",
+    "pdfjs-dist": "6.3.289"
   }
 }
