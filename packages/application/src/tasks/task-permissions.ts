@@ -1,4 +1,5 @@
 import type { DatabaseSql } from "@research-workbench/db/src/client";
+import type { TransactionSql } from "../transactions";
 
 type TaskPermissionSql = Pick<DatabaseSql, "unsafe">;
 
@@ -123,5 +124,31 @@ export async function assertAccountableTaskOwner(
     actorMemberId !== ownerMemberId
   ) {
     throw new Error("Forbidden: accountable task owner required");
+  }
+}
+
+
+export async function assertEligibleReviewer(
+  tx: TransactionSql,
+  projectId: string,
+  submissionId: string,
+  reviewerMemberId: string,
+): Promise<void> {
+  const access = await loadProjectAccess(tx, projectId, reviewerMemberId);
+  if (!access || !hasProjectAccess(access, reviewerMemberId)) {
+    throw new Error("Reviewer must be an active human with access to the project");
+  }
+
+  const conflicts = await tx.unsafe(
+    `select 1
+     from task_submission_contributors
+     where submission_id = $1
+       and contributor_kind = 'human_member'
+       and contributor_ref = $2
+     limit 1`,
+    [submissionId, reviewerMemberId],
+  );
+  if (conflicts.length > 0) {
+    throw new Error("Reviewer cannot review a submission they contributed to");
   }
 }
