@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 describe("file upload hook HTTP boundary", () => {
-  it("normalizes pre-create with null id, no storage and token from the client-request header", async () => {
+  it("normalizes tusd pre-create empty id as unassigned and reads the client-request token", async () => {
     const modulePath = "./normalize";
     const route = await import(modulePath);
 
@@ -10,7 +10,7 @@ describe("file upload hook HTTP boundary", () => {
         Type: "pre-create",
         Event: {
           Upload: {
-            ID: null,
+            ID: "",
             Size: 42,
             Offset: 0,
             MetaData: { workbenchUploadId: "intent-1" },
