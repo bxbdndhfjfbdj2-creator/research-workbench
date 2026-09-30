@@ -36,15 +36,16 @@ test("uploads v1 through tusd and shows immutable provenance", async ({ page }) 
   const bytes = Buffer.from("phase-4a-v1-through-real-tusd");
   const sha256 = createHash("sha256").update(bytes).digest("hex");
 
-  await page.getByLabel("资料标题").fill("Phase 4A first file");
-  await page.getByLabel("资料类型").selectOption("literature");
-  await page.getByLabel("访问级别").selectOption("project");
-  await page.getByLabel("文件").setInputFiles({
+  const uploadPanel = page.locator('section[aria-label="上传资料"]');
+  await uploadPanel.getByLabel("资料标题").fill("Phase 4A first file");
+  await uploadPanel.getByLabel("资料类型").selectOption("literature");
+  await uploadPanel.getByLabel("访问级别").selectOption("project");
+  await uploadPanel.getByLabel("文件").setInputFiles({
     name: "phase-4a-first.pdf",
     mimeType: "application/pdf",
     buffer: bytes,
   });
-  await page.getByRole("button", { name: "开始上传" }).click();
+  await uploadPanel.getByRole("button", { name: "开始上传" }).click();
   await expect(
     page.getByText("上传完成，正在进行安全扫描与解析。", { exact: true }),
   ).toBeVisible();
