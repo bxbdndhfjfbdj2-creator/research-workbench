@@ -55,7 +55,7 @@ export function FileDetail({ file }: { file: ResearchFileDetailViewModel }) {
         <h3>不可变版本历史</h3>
         <ol>
           {file.versions.map((version) => (
-            <li key={version.id}>
+            <li key={version.id} data-testid="file-version">
               <strong>v{version.versionNumber}</strong> · {version.originalFilename}
               <div className="meta">
                 {version.mediaType ?? "external reference"} · {version.byteSize ?? "—"} bytes ·
@@ -64,6 +64,11 @@ export function FileDetail({ file }: { file: ResearchFileDetailViewModel }) {
               </div>
               {version.sha256 ? <code>{version.sha256}</code> : null}
               {version.changeSummary ? <p>{version.changeSummary}</p> : null}
+              {version.sourceKind === "upload" ? (
+                <p>
+                  <a href={`/api/files/${version.id}/content?download=1`}>下载此版本</a>
+                </p>
+              ) : null}
               {version.processing.length > 0 ? (
                 <ul>
                   {version.processing.map((record) => (
