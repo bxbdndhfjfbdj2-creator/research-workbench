@@ -1,11 +1,18 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { initializeFoundationDatabase } from "@research-workbench/db/src/client";
 import {
+  cancelResearchTask,
   createResearchTask,
+  reopenResearchTask,
   startResearchTask,
 } from "./research-task-service";
 import { submitResearchTask } from "./task-submission-service";
-import { reassignReviewer } from "./task-review-service";
+import {
+  approveSubmission,
+  reassignReviewer,
+  rejectSubmission,
+  requestSubmissionChanges,
+} from "./task-review-service";
 import {
   startTestDatabase,
   stopTestDatabase,
@@ -271,4 +278,298 @@ describe("task review reviewer assignment", () => {
       ),
     ).rejects.toThrow(/human/i);
   });
+
+  it("lets only the current eligible reviewer approve and records accepted-submission provenance", async () => {
+    const review = await createPendingReview("Approve delivery");
+
+    await expect(
+      approveSubmission(
+        testDb.client.sql,
+        review.reviewRequestId,
+        "Wrong reviewer",
+        { type: "human", id: reviewerBId },
+      ),
+    ).rejects.toThrow(/reviewer|assigned|forbidden/i);
+
+    await expect(
+      approveSubmission(
+        testDb.client.sql,
+        review.reviewRequestId,
+        "Agent cannot approve",
+        { type: "agent", id: "agent-reviewer" },
+      ),
+    ).rejects.toThrow(/human/i);
+
+    const beforeOfficial = await testDb.client.sql.unsafe(
+      "select count(*)::int as count from official_revisions where project_id = $1",
+      [projectId],
+    );
+
+    const approved = await approveSubmission(
+      testDb.client.sql,
+      review.reviewRequestId,
+      "Looks good",
+      { type: "human", id: reviewerAId },
+    );
+    expect(approved.status).toBe("approved");
+
+    const taskRows = await testDb.client.sql.unsafe(
+      "select status from research_tasks where id = $1",
+      [review.taskId],
+    );
+    expect(taskRows[0]?.status).toBe("completed");
+
+    const actions = await testDb.client.sql.unsafe(
+      `select action, actor_id, comment, resulting_status
+       from review_actions
+       where review_request_id = $1 and action = 'approve'`,
+      [review.reviewRequestId],
+    );
+    expect(actions).toEqual([
+      {
+        action: "approve",
+        actor_id: reviewerAId,
+        comment: "Looks good",
+        resulting_status: "approved",
+      },
+    ]);
+
+    const completionEvents = await testDb.client.sql.unsafe(
+      `select payload from research_events
+       where project_id = $1
+         and event_type = 'RESEARCH_TASK_COMPLETED'
+         and payload->>'researchTaskId' = $2`,
+      [projectId, review.taskId],
+    );
+    expect(completionEvents).toHaveLength(1);
+    expect(completionEvents[0]?.payload).toEqual({
+      researchTaskId: review.taskId,
+      submissionId: review.submissionId,
+      completionKind: "review_approved",
+    });
+
+    const afterOfficial = await testDb.client.sql.unsafe(
+      "select count(*)::int as count from official_revisions where project_id = $1",
+      [projectId],
+    );
+    expect(afterOfficial[0]?.count).toBe(beforeOfficial[0]?.count);
+
+    const reopened = await reopenResearchTask(
+      testDb.client.sql,
+      review.taskId,
+      { type: "human", id: ownerId },
+    );
+    expect(reopened.status).toBe("in_progress");
+    expect(
+      await testDb.client.sql.unsafe(
+        `select id from research_events
+         where event_type = 'RESEARCH_TASK_COMPLETED'
+           and payload->>'submissionId' = $1`,
+        [review.submissionId],
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("requests changes without rewriting the old submission and requires a new review cycle", async () => {
+    const review = await createPendingReview("Changes requested");
+
+    await expect(
+      requestSubmissionChanges(
+        testDb.client.sql,
+        review.reviewRequestId,
+        "   ",
+        { type: "human", id: reviewerAId },
+      ),
+    ).rejects.toThrow(/comment|required/i);
+
+    await expect(
+      requestSubmissionChanges(
+        testDb.client.sql,
+        review.reviewRequestId,
+        "x".repeat(4_001),
+        { type: "human", id: reviewerAId },
+      ),
+    ).rejects.toThrow(/comment|4000/i);
+
+    const changed = await requestSubmissionChanges(
+      testDb.client.sql,
+      review.reviewRequestId,
+      "Please revise the analysis",
+      { type: "human", id: reviewerAId },
+    );
+    expect(changed.status).toBe("changes_requested");
+
+    const oldRows = await testDb.client.sql.unsafe(
+      `select ts.submission_number, rr.status
+       from task_submissions ts
+       join review_requests rr on rr.task_submission_id = ts.id
+       where ts.id = $1`,
+      [review.submissionId],
+    );
+    expect(oldRows).toEqual([
+      { submission_number: 1, status: "changes_requested" },
+    ]);
+
+    const taskRows = await testDb.client.sql.unsafe(
+      "select status from research_tasks where id = $1",
+      [review.taskId],
+    );
+    expect(taskRows[0]?.status).toBe("in_progress");
+
+    const second = await submitResearchTask(
+      testDb.client.sql,
+      review.taskId,
+      {
+        summary: "Revised delivery",
+        reviewerMemberId: reviewerAId,
+      },
+      { type: "human", id: ownerId },
+    );
+    expect(second.submission.submissionNumber).toBe(2);
+    expect(second.reviewRequestId).toBeTruthy();
+    expect(second.reviewRequestId).not.toBe(review.reviewRequestId);
+
+    const preserved = await testDb.client.sql.unsafe(
+      `select status from review_requests where id = $1`,
+      [review.reviewRequestId],
+    );
+    expect(preserved[0]?.status).toBe("changes_requested");
+  });
+
+  it("rejects a submission with a reason but keeps the task available for revision", async () => {
+    const review = await createPendingReview("Rejected delivery");
+
+    await expect(
+      rejectSubmission(
+        testDb.client.sql,
+        review.reviewRequestId,
+        "",
+        { type: "human", id: reviewerAId },
+      ),
+    ).rejects.toThrow(/comment|required/i);
+
+    const rejected = await rejectSubmission(
+      testDb.client.sql,
+      review.reviewRequestId,
+      "The evidence does not support this delivery",
+      { type: "human", id: reviewerAId },
+    );
+    expect(rejected.status).toBe("rejected");
+
+    const taskRows = await testDb.client.sql.unsafe(
+      "select status from research_tasks where id = $1",
+      [review.taskId],
+    );
+    expect(taskRows[0]?.status).toBe("in_progress");
+  });
+
+  it("rechecks current reviewer eligibility at decision time", async () => {
+    const staleReview = await createPendingReview("Stale reviewer action");
+    await testDb.client.sql.unsafe(
+      "update members set active = false where id = $1",
+      [reviewerAId],
+    );
+    try {
+      await expect(
+        approveSubmission(
+          testDb.client.sql,
+          staleReview.reviewRequestId,
+          null,
+          { type: "human", id: reviewerAId },
+        ),
+      ).rejects.toThrow(/reviewer|active|access|forbidden/i);
+    } finally {
+      await testDb.client.sql.unsafe(
+        "update members set active = true where id = $1",
+        [reviewerAId],
+      );
+    }
+
+    const selfReview = await createPendingReview("Late contributor conflict");
+    await testDb.client.sql.unsafe(
+      `insert into task_submission_contributors
+        (id, submission_id, contributor_kind, contributor_ref)
+       values ('late-reviewer-conflict', $1, 'human_member', $2)`,
+      [selfReview.submissionId, reviewerAId],
+    );
+    await expect(
+      approveSubmission(
+        testDb.client.sql,
+        selfReview.reviewRequestId,
+        null,
+        { type: "human", id: reviewerAId },
+      ),
+    ).rejects.toThrow(/contribut|self|review/i);
+  });
+
+  it("cancels a pending review and task atomically but blocks cancellation while awaiting a scientific decision", async () => {
+    const pending = await createPendingReview("Cancel pending review");
+    const cancelled = await cancelResearchTask(
+      testDb.client.sql,
+      pending.taskId,
+      { type: "human", id: ownerId },
+    );
+    expect(cancelled.status).toBe("cancelled");
+
+    const pendingRows = await testDb.client.sql.unsafe(
+      "select status from review_requests where id = $1",
+      [pending.reviewRequestId],
+    );
+    expect(pendingRows[0]?.status).toBe("cancelled");
+
+    const cancelActions = await testDb.client.sql.unsafe(
+      `select action, actor_id, resulting_status
+       from review_actions
+       where review_request_id = $1 and action = 'cancel'`,
+      [pending.reviewRequestId],
+    );
+    expect(cancelActions).toEqual([
+      {
+        action: "cancel",
+        actor_id: ownerId,
+        resulting_status: "cancelled",
+      },
+    ]);
+
+    for (const eventType of ["REVIEW_CANCELLED", "RESEARCH_TASK_CANCELLED"]) {
+      const rows = await testDb.client.sql.unsafe(
+        `select id from research_events
+         where project_id = $1
+           and event_type = $2
+           and payload->>'researchTaskId' = $3`,
+        [projectId, eventType, pending.taskId],
+      );
+      expect(rows).toHaveLength(1);
+    }
+
+    const escalated = await createPendingReview("Cannot cancel during decision");
+    await testDb.client.sql.unsafe(
+      `update review_requests
+       set status = 'awaiting_scientific_decision', updated_at = now()
+       where id = $1`,
+      [escalated.reviewRequestId],
+    );
+
+    await expect(
+      cancelResearchTask(
+        testDb.client.sql,
+        escalated.taskId,
+        { type: "human", id: ownerId },
+      ),
+    ).rejects.toThrow(/scientific|decision|review/i);
+
+    const [taskRows, reviewRows] = await Promise.all([
+      testDb.client.sql.unsafe(
+        "select status from research_tasks where id = $1",
+        [escalated.taskId],
+      ),
+      testDb.client.sql.unsafe(
+        "select status from review_requests where id = $1",
+        [escalated.reviewRequestId],
+      ),
+    ]);
+    expect(taskRows[0]?.status).toBe("awaiting_review");
+    expect(reviewRows[0]?.status).toBe("awaiting_scientific_decision");
+  });
+
 });

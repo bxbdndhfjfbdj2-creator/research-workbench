@@ -6,6 +6,7 @@ import {
   updateResearchTaskRequirements,
 } from "../../packages/application/src/tasks/research-task-service";
 import { submitResearchTask } from "../../packages/application/src/tasks/task-submission-service";
+import { approveSubmission } from "../../packages/application/src/tasks/task-review-service";
 import {
   startTestDatabase,
   stopTestDatabase,
@@ -157,4 +158,55 @@ describe("task submission concurrency", () => {
       },
     ]).toContainEqual(snapshot);
   });
+
+  it("serializes concurrent approve attempts into one terminal review and one completion fact", async () => {
+    const task = await createStartedTask("Concurrent approve", "required");
+    const submitted = await submitResearchTask(
+      testDb.client.sql,
+      task.id,
+      { summary: "Approve once", reviewerMemberId: reviewerId },
+      { type: "human", id: ownerId },
+    );
+    if (!submitted.reviewRequestId) throw new Error("Expected review request");
+
+    const outcomes = await Promise.allSettled([
+      approveSubmission(
+        testDb.client.sql,
+        submitted.reviewRequestId,
+        "Approve A",
+        { type: "human", id: reviewerId },
+      ),
+      approveSubmission(
+        testDb.client.sql,
+        submitted.reviewRequestId,
+        "Approve B",
+        { type: "human", id: reviewerId },
+      ),
+    ]);
+
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
+
+    const [reviewActions, completionEvents, taskRows] = await Promise.all([
+      testDb.client.sql.unsafe(
+        `select id from review_actions
+         where review_request_id = $1 and action = 'approve'`,
+        [submitted.reviewRequestId],
+      ),
+      testDb.client.sql.unsafe(
+        `select id from research_events
+         where event_type = 'RESEARCH_TASK_COMPLETED'
+           and payload->>'submissionId' = $1`,
+        [submitted.submission.id],
+      ),
+      testDb.client.sql.unsafe(
+        "select status from research_tasks where id = $1",
+        [task.id],
+      ),
+    ]);
+    expect(reviewActions).toHaveLength(1);
+    expect(completionEvents).toHaveLength(1);
+    expect(taskRows[0]?.status).toBe("completed");
+  });
+
 });
