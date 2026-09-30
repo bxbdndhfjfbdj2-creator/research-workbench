@@ -144,7 +144,7 @@ Expected: PASS.
 - `cancelResearchTask(sql, taskId, actor)` initially covers open/in_progress/blocked; Task 5 adds pending-review atomic cancellation.
 - `reopenResearchTask(sql, taskId, actor)`
 - `completeUnreviewedTask(sql, taskId, submissionId, actor)` — accountable owner only; a project/team lead must explicitly reassign ownership before accepting an unreviewed Submission on that person's behalf.
-- Internal `ensureWorkflowV2ForMutation(...)` or equivalent guarantees active v1 upgrade semantics.
+- Internal `ensureWorkflowV2ForMutation(...)` in `research-task-service.ts` guarantees active v1 upgrade semantics; it is not exported outside that module.
 
 - [ ] **Step 1: Write failing lifecycle/authorization tests**
 
