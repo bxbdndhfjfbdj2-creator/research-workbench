@@ -58,6 +58,6 @@ test("uploads v1 through tusd and shows immutable provenance", async ({ page }) 
   await expect(page.getByText("application/pdf", { exact: false })).toBeVisible();
   await expect(page.getByText(sha256, { exact: true })).toBeVisible();
   await expect(page.getByText(researcher.id, { exact: true })).toBeVisible();
-  await expect(page.getByText(/tika-acceptance@1\.0\.0/)).toBeVisible();
-  await expect(page.getByText(/docling-acceptance@1\.0\.0/)).toBeVisible();
+  await expect(page.getByText(/tika@1\.0\.0/)).toBeVisible();
+  await expect(page.getByText(/docling@1\.0\.0/)).toBeVisible();
 });
