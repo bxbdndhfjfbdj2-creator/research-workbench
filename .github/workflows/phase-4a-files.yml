@@ -1,0 +1,46 @@
+name: Phase 4A File Acceptance
+
+on:
+  push:
+    branches:
+      - phase/04-research-operations
+    paths:
+      - ".github/workflows/phase-4a-files.yml"
+      - "tests/acceptance/files-provenance.spec.ts"
+      - "tests/acceptance/support/file-services.ts"
+      - "tests/acceptance/support/environment.ts"
+      - "apps/web/src/components/files/**"
+      - "apps/web/src/server/file-actions.ts"
+      - "apps/web/src/server/queries.ts"
+      - "apps/web/app/**/files/**"
+      - "apps/web/app/api/files/**"
+      - "apps/web/app/api/internal/file-upload-hook/**"
+      - "packages/application/src/files/**"
+      - "packages/storage/**"
+      - "packages/file-processing/**"
+      - "packages/config/src/env.ts"
+      - "packages/db/migrations/0001_files_provenance.sql"
+      - "apps/web/package.json"
+      - "pnpm-lock.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  file-acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Phase 4A file browser acceptance
+        run: pnpm exec playwright test tests/acceptance/files-provenance.spec.ts
