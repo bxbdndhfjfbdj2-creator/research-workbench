@@ -282,18 +282,20 @@ describe("research task workflow v2", () => {
       [memberId],
     );
 
-    await expect(
-      startResearchTask(
-        testDb.client.sql,
-        task.id,
-        { type: "human", id: memberId },
-      ),
-    ).rejects.toThrow(/inactive|access|owner|forbidden/i);
-
-    await testDb.client.sql.unsafe(
-      "update members set active = true where id = $1",
-      [memberId],
-    );
+    try {
+      await expect(
+        startResearchTask(
+          testDb.client.sql,
+          task.id,
+          { type: "human", id: memberId },
+        ),
+      ).rejects.toThrow(/inactive|access|owner|forbidden/i);
+    } finally {
+      await testDb.client.sql.unsafe(
+        "update members set active = true where id = $1",
+        [memberId],
+      );
+    }
   });
 
   it("locks reviewPolicy after the first formal submission", async () => {
