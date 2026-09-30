@@ -6,7 +6,7 @@ const ITEMS = [
   { label: "证据与结果", segment: "/evidence" },
   { label: "科学决策", segment: "/decisions" },
   { label: "智能工作", segment: "/agent-work" },
-  { label: "项目资产", segment: null },
+  { label: "文件与资料", segment: "/files" },
 ] as const;
 
 export function ProjectNavigation({

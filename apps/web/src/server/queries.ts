@@ -838,6 +838,7 @@ export type FileVersionViewModel = {
   changeSummary: string | null;
   scanStatus: string;
   parseStatus: string;
+  extractedText: string | null;
   createdBy: string;
   createdAt: Date;
   processing: Array<{
@@ -1030,10 +1031,12 @@ export async function getResearchFileDetail(
     `select fv.id, fv.version_number, fv.original_filename, fv.media_type,
             fv.byte_size, fv.sha256, fv.source_kind, fv.change_summary,
             fv.scan_status, fv.parse_status, fv.created_by, fv.created_at,
+            fs.extracted_text,
             er.id as external_reference_id, er.uri_or_locator, er.manifest_hash,
             er.access_policy_ref, er.license_or_agreement_ref, er.version_label,
             er.created_by as external_created_by, er.created_at as external_created_at
      from file_versions fv
+     left join file_search_documents fs on fs.file_version_id = fv.id
      left join external_data_references er on er.id = fv.external_reference_id
      where fv.research_file_id = $1
      order by fv.version_number desc`,
@@ -1118,6 +1121,7 @@ export async function getResearchFileDetail(
     changeSummary: row.change_summary ? String(row.change_summary) : null,
     scanStatus: String(row.scan_status),
     parseStatus: String(row.parse_status),
+    extractedText: row.extracted_text ? String(row.extracted_text) : null,
     createdBy: String(row.created_by),
     createdAt: new Date(row.created_at as string | Date),
     processing: processingByVersion.get(String(row.id)) ?? [],
