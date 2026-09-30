@@ -96,7 +96,7 @@ describe("research work read models", () => {
           status: "pending",
         }),
         agentRunCount: 1,
-        latestAgentRunState: "已完成",
+        latestAgentRunState: "完成",
       }),
     ]);
 
@@ -194,12 +194,22 @@ async function seedVisibleWork(testDb: TestDatabase): Promise<void> {
        '{"objective":"robustness"}'::jsonb, 'human', 'work-query-owner')`,
   );
   await testDb.client.sql.unsafe(
-    `insert into agent_runs
-      (id, agent_task_id, project_id, attempt_number, state, execution_policy,
-       created_by_type, created_by_id)
+    `insert into agent_context_snapshots
+      (id, project_id, asset_version_refs, skill_version_refs, harness_version,
+       harness_profile, runtime_profile, model_route, sandbox_policy,
+       tool_allowlist, subagent_allowlist, created_by_type, created_by_id)
      values
-      ('work-agent-run', 'work-agent-task', 'work-query-project', 1, '已完成',
-       '{}'::jsonb, 'human', 'work-query-owner')`,
+      ('work-agent-snapshot', 'work-query-project', '[]'::jsonb, '[]'::jsonb,
+       'test-harness', 'default', 'default', 'test-model', 'read-only',
+       '[]'::jsonb, '[]'::jsonb, 'human', 'work-query-owner')`,
+  );
+  await testDb.client.sql.unsafe(
+    `insert into agent_runs
+      (id, agent_task_id, project_id, attempt_number, context_snapshot_id,
+       state, execution_policy, created_by_type, created_by_id)
+     values
+      ('work-agent-run', 'work-agent-task', 'work-query-project', 1,
+       'work-agent-snapshot', '完成', '{}'::jsonb, 'human', 'work-query-owner')`,
   );
 
   await testDb.client.sql.unsafe(
