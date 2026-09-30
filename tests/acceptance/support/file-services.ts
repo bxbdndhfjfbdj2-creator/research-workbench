@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
 import type { DatabaseSql } from "../../../packages/db/src/client";
 import { processCompletedUpload } from "../../../packages/application/src/files/process-upload";
 import type {
@@ -203,8 +204,34 @@ async function latestFacts(sql: DatabaseSql, projectId: string) {
   };
 }
 
+async function listenForHostPortExposure(port: number): Promise<Server> {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "Content-Type": "text/plain" });
+    response.end("acceptance hook port warmup");
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  return server;
+}
+
+async function closeServer(server: Server): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
+
 export async function startFileAcceptanceServices(): Promise<StartedFileAcceptanceServices> {
-  await TestContainers.exposeHostPorts(3100);
+  const exposureServer = await listenForHostPortExposure(3100);
+  try {
+    await TestContainers.exposeHostPorts(3100);
+  } finally {
+    await closeServer(exposureServer);
+  }
   const network: StartedNetwork = await new Network().start();
   let seaweed: StartedTestContainer | undefined;
   let tusd: StartedTestContainer | undefined;
