@@ -248,3 +248,63 @@ test("links the current file version to research provenance subjects", async ({ 
     ),
   ).toBeVisible();
 });
+
+
+test("registers restricted external data without tus bytes and redacts locator for ordinary members", async ({ page }) => {
+  const creator = environment.researchers[0];
+  const ordinaryMember = environment.researchers[1];
+  if (!creator?.projectId || !ordinaryMember) throw new Error("Acceptance users missing");
+
+  let tusCreationPosts = 0;
+  await page.route(
+    (url) => url.href.startsWith(environment.files.tusEndpoint),
+    async (route) => {
+      if (route.request().method() === "POST") tusCreationPosts += 1;
+      await route.continue();
+    },
+  );
+
+  await login(page, creator.email, creator.password);
+  await page.goto(`/projects/${creator.projectId}/files`);
+
+  const form = page.locator("form.panel").filter({
+    has: page.getByRole("heading", { name: "登记受控外部数据" }),
+  });
+  await form.getByLabel("标题").fill("Restricted external acceptance");
+  await form.getByLabel("资料类型").selectOption("dataset");
+  await form.getByLabel("受控 locator").fill("secure-datalake://acceptance/study-42");
+  await form.getByLabel("Manifest hash").fill("manifest-acceptance-42");
+  await form.getByLabel("Access policy ref").fill("policy:acceptance-42");
+  await form.getByLabel("License / agreement ref").fill("agreement:acceptance-42");
+  await form.getByLabel("版本标签").fill("release-42");
+  await form.getByRole("button", { name: "登记外部数据" }).click();
+
+  const fileLink = page.getByRole("link", {
+    name: "Restricted external acceptance",
+    exact: true,
+  });
+  await expect(fileLink).toBeVisible();
+  expect(tusCreationPosts).toBe(0);
+
+  await fileLink.click();
+  await expect(page.getByText("manifest-acceptance-42", { exact: true })).toBeVisible();
+  await expect(page.getByText("release-42", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("secure-datalake://acceptance/study-42", { exact: true }),
+  ).toBeVisible();
+  const detailUrl = page.url();
+
+  await page.context().clearCookies();
+  await login(page, ordinaryMember.email, ordinaryMember.password);
+  await page.goto(detailUrl);
+
+  await expect(
+    page.getByRole("heading", { name: "Restricted external acceptance", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("manifest-acceptance-42", { exact: true })).toBeVisible();
+  await expect(page.getByText("release-42", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("secure-datalake://acceptance/study-42", { exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByText("受限元数据", { exact: true })).toHaveCount(3);
+});
