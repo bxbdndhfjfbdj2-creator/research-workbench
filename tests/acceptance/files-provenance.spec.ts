@@ -167,3 +167,47 @@ test("quarantines malware without exposing a formal file", async ({ page }) => {
   await expect(rejected).toContainText("rejected_malware");
   await expect(rejected.getByRole("link", { name: "下载原文件" })).toHaveCount(0);
 });
+
+
+test("uploads v2 while preserving immutable v1 download history", async ({ page }) => {
+  const researcher = environment.researchers[0];
+  if (!researcher?.projectId) throw new Error("Acceptance project missing");
+
+  await login(page, researcher.email, researcher.password);
+  await page.goto(`/projects/${researcher.projectId}/files`);
+  await page.getByRole("link", { name: "Phase 4A first file", exact: true }).click();
+
+  const newVersionPanel = page.locator('section[aria-label="上传新版本"]');
+  await newVersionPanel.getByLabel("变更摘要").fill("Second immutable revision");
+  await newVersionPanel.getByLabel("文件").setInputFiles({
+    name: "phase-4a-v2.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("phase-4a-v2-through-real-tusd"),
+  });
+  await newVersionPanel.getByRole("button", { name: "上传新版本" }).click();
+  await expect(
+    page.getByText("上传完成，正在进行安全扫描与解析。", { exact: true }),
+  ).toBeVisible();
+
+  const processed = await environment.files.processLatestUpload(researcher.projectId);
+  expect(processed.result).toBe("ready");
+
+  await page.reload();
+  const versions = page.getByTestId("file-version");
+  await expect(versions).toHaveCount(2);
+  await expect(versions.first()).toContainText("v2");
+  await expect(versions.first()).toContainText("Second immutable revision");
+
+  const v1 = versions.filter({ hasText: "v1" });
+  await expect(v1).toBeVisible();
+  const oldDownload = v1.getByRole("link", { name: "下载此版本" });
+  await expect(oldDownload).toBeVisible();
+  const oldHref = await oldDownload.getAttribute("href");
+  if (!oldHref) throw new Error("Historical download link is missing href");
+
+  const response = await page.context().request.get(
+    new URL(oldHref, page.url()).toString(),
+  );
+  expect(response.ok()).toBe(true);
+  expect(await response.text()).toBe("phase-4a-v1-through-real-tusd");
+});
