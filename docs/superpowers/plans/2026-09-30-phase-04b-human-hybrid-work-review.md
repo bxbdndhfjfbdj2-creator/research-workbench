@@ -143,7 +143,7 @@ Expected: PASS.
 - `unblockResearchTask(sql, taskId, actor)`
 - `cancelResearchTask(sql, taskId, actor)` initially covers open/in_progress/blocked; Task 5 adds pending-review atomic cancellation.
 - `reopenResearchTask(sql, taskId, actor)`
-- `completeUnreviewedTask(sql, taskId, submissionId, actor)`
+- `completeUnreviewedTask(sql, taskId, submissionId, actor)` — accountable owner only; a project/team lead must explicitly reassign ownership before accepting an unreviewed Submission on that person's behalf.
 - Internal `ensureWorkflowV2ForMutation(...)` or equivalent guarantees active v1 upgrade semantics.
 
 - [ ] **Step 1: Write failing lifecycle/authorization tests**
@@ -195,6 +195,7 @@ Expected: PASS.
 **Files:**
 - Create: `packages/application/src/tasks/task-submission-service.ts`
 - Create: `packages/application/src/tasks/task-submission-service.test.ts`
+- Modify: `packages/application/src/tasks/task-permissions.ts`
 - Create or modify: `tests/integration/task-review-concurrency.test.ts`
 
 **Interfaces:**
@@ -202,7 +203,8 @@ Expected: PASS.
 - `TaskSubmissionRefInput = { kind: TaskSubmissionRefKind; refId: string; relation: TaskSubmissionRefRelation }`
 - `submitResearchTask(sql, taskId, input, actor) -> Promise<{ submission: TaskSubmission; reviewRequestId: string | null }>`
 - input: `{ summary: string; contributors?: TaskSubmissionContributorInput[]; refs?: TaskSubmissionRefInput[]; reviewerMemberId?: string | null }`
-- required-review submission requires `reviewerMemberId`; none-review rejects/ignores no reviewer by contract—choose reject to keep callers explicit.
+- Task 3 adds `assertEligibleReviewer(sql, projectId, submissionId, reviewerMemberId)` (or an equivalent transaction-aware helper) to `task-permissions.ts`; required-review Submission creation must validate the initial reviewer before commit.
+- `reviewPolicy=required` requires a non-null `reviewerMemberId`; `reviewPolicy=none` requires it to be omitted/null and rejects a non-null reviewer value.
 
 - [ ] **Step 1: Write failing submission tests**
 
@@ -218,6 +220,7 @@ Assert:
 - cross-project stable IDs roll back the whole transaction.
 - snapshot contains exact title/description/acceptanceCriteria/executionMode/reviewPolicy at commit time.
 - later task edits do not mutate old snapshot.
+- the initial required reviewer passes the same human/active/project-access/non-contributor eligibility rules later reused by reassignment.
 - two concurrent submits for the same task cannot both create the active cycle; submission numbers remain unique/monotonic.
 - a task requirement update racing submit cannot produce a half-old/half-new snapshot because both lock the same task row.
 
@@ -254,7 +257,7 @@ Expected: PASS.
 - Modify: `packages/application/src/tasks/task-permissions.ts`
 
 **Interfaces:**
-- Internal/exported-for-service `assertEligibleReviewer(sql, projectId, submissionId, reviewerMemberId)`.
+- Consumes the Task 3 `assertEligibleReviewer(...)` helper; Task 4 broadens its regression coverage rather than redefining eligibility.
 - `reassignReviewer(sql, reviewRequestId, reviewerMemberId, actor) -> Promise<ReviewRequest>`.
 - Initial assignment remains inside `submitResearchTask()`; do not add a free-floating “create review later” path.
 
@@ -353,12 +356,13 @@ Expected: PASS.
 - Create: `apps/worker/src/review-runtime.test.ts`
 - Modify: `apps/worker/src/main.ts`
 - Modify: `apps/worker/src/main.test.ts`
-- Modify production worker composition entry point(s) that currently supply file/agent boolean handlers.
+- Modify: `tests/acceptance/support/environment.ts` only to expose a controller that runs the same review-resolution handler through `runOutboxPass`; acceptance support must not mutate Review rows directly.
 
 **Interfaces:**
 - `escalateReviewToScientificDecision(sql, reviewRequestId, proposal: Omit<DecisionProposal,"projectId">, actor)`.
 - `resumeReviewAfterScientificDecision(sql, decisionId) -> Promise<"resumed" | "not_linked" | "not_terminal" | "already_resolved">`.
 - `createReviewResolutionOutboxHandler(sql): BooleanOutboxHandler` handles only `scientific.decision.reviewed`.
+- The current repo has no separate production dispatcher bootstrap beyond injectable `startWorker(databaseUrl, dispatch)`; prove the handler composes through existing `createWorkerDispatch(...handlers)` instead of inventing a new deployment entry point.
 
 - [ ] **Step 1: Write failing escalation tests**
 
@@ -373,6 +377,7 @@ Pin:
 - Decision approved does not auto-approve Review or complete Task.
 - Decision rejected does not auto-reject Submission.
 - outbox handler is idempotent on retry.
+- acceptance support processes resolution via `runOutboxPass(..., createWorkerDispatch(createReviewResolutionOutboxHandler(sql)))`; it must not call `resumeReviewAfterScientificDecision()` as a shortcut.
 
 - [ ] **Step 2: Run RED**
 
