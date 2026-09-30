@@ -1,12 +1,22 @@
 import { PgBoss } from "pg-boss";
 import { createDbClient } from "@research-workbench/db/src/client";
 import { runOutboxPass, type OutboxDispatchHandler } from "./outbox-worker";
+import {
+  composeOutboxHandlers,
+  type BooleanOutboxHandler,
+} from "./file-runtime";
 
 export const workerServiceName = "research-workbench-worker";
 
 export type RunningWorker = {
   stop: () => Promise<void>;
 };
+
+export function createWorkerDispatch(
+  ...handlers: BooleanOutboxHandler[]
+): OutboxDispatchHandler {
+  return composeOutboxHandlers(...handlers);
+}
 
 export async function startWorker(
   databaseUrl: string,
