@@ -450,3 +450,42 @@ test("keeps a clean file downloadable when rich parsing fails", async ({ page })
   await expect(page.getByText("acceptance extracted text latent trust interview evidence")).toBeVisible();
   await expect(page.getByRole("link", { name: "下载原文件" })).toBeVisible();
 });
+
+
+test("preserves a formal file with structured parser failure and no internal error leakage", async ({ page }) => {
+  const researcher = environment.researchers[0];
+  if (!researcher?.projectId) throw new Error("Acceptance project missing");
+
+  await login(page, researcher.email, researcher.password);
+  await page.goto(`/projects/${researcher.projectId}/files`);
+
+  const uploadPanel = page.locator('section[aria-label="上传资料"]');
+  await uploadPanel.getByLabel("资料标题").fill("Parser failure acceptance");
+  await uploadPanel.getByLabel("资料类型").selectOption("data_documentation");
+  await uploadPanel.getByLabel("访问级别").selectOption("project");
+  await uploadPanel.getByLabel("文件").setInputFiles({
+    name: "parser-failure.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("DOCLING_FAIL acceptance parser boundary"),
+  });
+  await uploadPanel.getByRole("button", { name: "开始上传" }).click();
+  await expect(
+    page.getByText("上传完成，正在进行安全扫描与解析。", { exact: true }),
+  ).toBeVisible();
+
+  const processed = await environment.files.processLatestUpload(researcher.projectId);
+  expect(processed.result).toBe("ready_with_parse_error");
+  expect(processed.fileVersionId).toBeTruthy();
+
+  await page.reload();
+  const status = page
+    .getByTestId("file-upload-status")
+    .filter({ hasText: "Parser failure acceptance" });
+  await expect(status).toContainText("ready_with_parse_error");
+
+  await page.getByRole("link", { name: "Parser failure acceptance", exact: true }).click();
+  const currentVersion = page.getByTestId("file-version").first();
+  await expect(currentVersion).toContainText("parse failed");
+  await expect(currentVersion).toContainText("docling@unavailable · failed · RICH_PARSE_FAILED");
+  await expect(page.getByText("ACCEPTANCE_DOCLING_FAILURE_WITH_SECRET_DETAILS")).toHaveCount(0);
+});
