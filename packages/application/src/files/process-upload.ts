@@ -48,6 +48,7 @@ type UploadIntentRow = {
   declared_media_type: string | null;
   change_summary: string | null;
   state: string;
+  tus_upload_id: string | null;
   quarantine_bucket: string | null;
   quarantine_key: string | null;
   created_by: string;
@@ -74,7 +75,7 @@ async function loadIntent(sql: Pick<DatabaseSql, "unsafe">, id: string): Promise
   const rows = (await sql.unsafe(
     `select id, project_id, research_file_id, proposed_title, file_kind, access_class,
             original_filename, expected_byte_size, declared_media_type, change_summary,
-            state, quarantine_bucket, quarantine_key, created_by
+            state, tus_upload_id, quarantine_bucket, quarantine_key, created_by
      from file_upload_intents
      where id = $1
      limit 1`,
@@ -196,6 +197,28 @@ async function finishAttempt(
   return new Date(row.finished_at as string | Date);
 }
 
+async function failAttempt(
+  sql: DatabaseSql,
+  id: string,
+  errorCode: string,
+): Promise<Date> {
+  const rows = await sql.unsafe(
+    `update file_ingest_processor_attempts
+     set processor_version = 'unavailable',
+         status = 'failed',
+         output_refs = '[]'::jsonb,
+         error_code = $2,
+         finished_at = now(),
+         updated_at = now()
+     where id = $1
+     returning finished_at`,
+    [id, errorCode],
+  );
+  const row = rows[0];
+  if (!row) throw new Error("Processing attempt failure returned no row");
+  return new Date(row.finished_at as string | Date);
+}
+
 function doclingKey(
   derivedPrefix: string,
   sha256: string,
@@ -216,6 +239,8 @@ async function finalizeCleanVersion(
     readyKey: string;
     extractedText: string | null;
     processorFacts: ProcessorFact[];
+    parseStatus: "parsed" | "failed";
+    terminalState: "ready" | "ready_with_parse_error";
   },
   deps: FileProcessingDependencies,
 ): Promise<void> {
@@ -311,7 +336,7 @@ async function finalizeCleanVersion(
          byte_size, sha256, source_kind, source_metadata, change_summary,
          scan_status, parse_status, created_by)
        values ($1, $2, $3, $4, $5, $6, $7, $8, 'upload', $9::jsonb, $10,
-               'passed', 'parsed', $11)`,
+               'passed', $11, $12)`,
       [
         fileVersionId,
         researchFileId,
@@ -323,9 +348,10 @@ async function finalizeCleanVersion(
         facts.sha256,
         JSON.stringify({
           uploadIntentId: intent.id,
-          tusUploadId: null,
+          tusUploadId: intent.tus_upload_id,
         }),
         intent.change_summary,
+        facts.parseStatus,
         intent.created_by,
       ],
     );
@@ -371,9 +397,9 @@ async function finalizeCleanVersion(
     );
     await tx.unsafe(
       `update file_upload_intents
-       set state = 'ready', updated_at = now()
+       set state = $2, updated_at = now()
        where id = $1`,
-      [intent.id],
+      [intent.id, facts.terminalState],
     );
 
     await appendResearchEvent(tx, {
@@ -386,9 +412,14 @@ async function finalizeCleanVersion(
     await appendResearchEvent(tx, {
       id: randomUUID(),
       projectId: intent.project_id,
-      eventType: "FILE_PARSE_COMPLETED",
+      eventType: facts.parseStatus === "parsed" ? "FILE_PARSE_COMPLETED" : "FILE_PARSE_FAILED",
       actor: { type: "human", id: intent.created_by },
-      payload: { uploadIntentId: intent.id, fileVersionId, sha256: facts.sha256 },
+      payload: {
+        uploadIntentId: intent.id,
+        fileVersionId,
+        sha256: facts.sha256,
+        ...(facts.parseStatus === "failed" ? { errorCode: "RICH_PARSE_FAILED" } : {}),
+      },
     });
     await appendResearchEvent(tx, {
       id: randomUUID(),
@@ -425,7 +456,7 @@ export async function processCompletedUpload(
   if (intent.state === "ready" || intent.state === "ready_with_parse_error" || intent.state === "rejected_malware") {
     return "already_terminal";
   }
-  if (intent.state !== "uploaded_quarantine") {
+  if (!["uploaded_quarantine", "processing_failed"].includes(intent.state)) {
     throw new Error("Upload intent is not ready for processing");
   }
   if (intent.quarantine_bucket !== deps.quarantineBucket) {
@@ -445,16 +476,23 @@ export async function processCompletedUpload(
 
     const scanStarted = Date.now();
     const scanAttempt = await startAttempt(sql, intent.id, "scanner", "clamav", local.sha256);
-    const scan = await deps.scanner.scan({
-      path: local.path,
-      originalFilename: intent.original_filename,
-      byteSize: local.byteSize,
-      sha256: local.sha256,
-    });
-    deps.metrics.observe("file.scan.duration_ms", Date.now() - scanStarted);
-    if (scan.verdict !== "clean") {
-      throw new Error("MALWARE_PATH_NOT_IMPLEMENTED");
+    let scan;
+    try {
+      scan = await deps.scanner.scan({
+        path: local.path,
+        originalFilename: intent.original_filename,
+        byteSize: local.byteSize,
+        sha256: local.sha256,
+      });
+    } catch {
+      await failAttempt(sql, scanAttempt.id, "SCAN_FAILED");
+      await updateIntentState(sql, intent.id, "processing_failed");
+      deps.metrics.observe("file.scan.duration_ms", Date.now() - scanStarted);
+      deps.metrics.increment("file.scan.failed");
+      deps.metrics.increment("file.upload.failed");
+      throw new Error("SCAN_FAILED");
     }
+    deps.metrics.observe("file.scan.duration_ms", Date.now() - scanStarted);
     const scanRef = {
       bucket: deps.readyBucket,
       key: `${deps.derivedPrefix}${local.sha256}/scan/clamav.json`,
@@ -479,15 +517,56 @@ export async function processCompletedUpload(
       [scanOutput],
     );
 
+    if (scan.verdict === "malware") {
+      await runInTransaction(sql, async (tx) => {
+        const blobId = randomUUID();
+        await tx.unsafe(
+          `insert into file_blobs
+            (id, sha256, storage_backend, storage_key, byte_size, media_type_detected, quarantine_state)
+           values ($1, $2, 's3-quarantine', $3, $4, null, 'rejected')
+           on conflict (storage_backend, sha256) do nothing`,
+          [blobId, local.sha256, quarantineKey, local.byteSize],
+        );
+        await tx.unsafe(
+          "update file_upload_intents set state = 'rejected_malware', updated_at = now() where id = $1",
+          [intent.id],
+        );
+        await appendResearchEvent(tx, {
+          id: randomUUID(),
+          projectId: intent.project_id,
+          eventType: "FILE_SCAN_REJECTED",
+          actor: { type: "human", id: intent.created_by },
+          payload: {
+            uploadIntentId: intent.id,
+            sha256: local.sha256,
+            verdict: "malware",
+          },
+        });
+      });
+      deps.metrics.increment("file.scan.malware");
+      deps.metrics.increment("file.upload.failed");
+      return "rejected_malware";
+    }
+
+    deps.metrics.increment("file.scan.clean");
     await updateIntentState(sql, intent.id, "metadata_processing");
     const parseStarted = Date.now();
     const metadataAttempt = await startAttempt(sql, intent.id, "metadata", "tika", local.sha256);
-    const metadata = await deps.metadataExtractor.extract({
-      path: local.path,
-      originalFilename: intent.original_filename,
-      byteSize: local.byteSize,
-      sha256: local.sha256,
-    });
+    let metadata;
+    try {
+      metadata = await deps.metadataExtractor.extract({
+        path: local.path,
+        originalFilename: intent.original_filename,
+        byteSize: local.byteSize,
+        sha256: local.sha256,
+      });
+    } catch {
+      await failAttempt(sql, metadataAttempt.id, "METADATA_EXTRACTION_FAILED");
+      await updateIntentState(sql, intent.id, "processing_failed");
+      deps.metrics.increment("file.parse.failed");
+      deps.metrics.increment("file.upload.failed");
+      throw new Error("METADATA_EXTRACTION_FAILED");
+    }
     const metadataRef = {
       bucket: deps.readyBucket,
       key: `${deps.derivedPrefix}${local.sha256}/tika/metadata.json`,
@@ -525,53 +604,71 @@ export async function processCompletedUpload(
 
     await updateIntentState(sql, intent.id, "parsing");
     const richAttempt = await startAttempt(sql, intent.id, "rich_parser", "docling", local.sha256);
-    const rich = await deps.richParser.parse(
-      {
-        path: local.path,
-        originalFilename: intent.original_filename,
-        byteSize: local.byteSize,
-        sha256: local.sha256,
-      },
-      metadata.mediaTypeDetected,
-    );
     const richOutputs: string[] = [];
-    for (const artifact of rich.artifacts) {
-      const ref = {
-        bucket: deps.readyBucket,
-        key: doclingKey(deps.derivedPrefix, local.sha256, artifact),
-      };
-      richOutputs.push(
-        await putDerived(
-          deps.storage,
-          ref,
-          artifact.bytes,
-          artifact.kind === "json"
-            ? "application/json"
-            : artifact.kind === "html"
-              ? "text/html; charset=utf-8"
-              : "text/markdown; charset=utf-8",
-        ),
+    let richProcessorVersion = "unavailable";
+    let richFinishedAt: Date;
+    let richStatus: "succeeded" | "failed" = "succeeded";
+    let richErrorCode: string | null = null;
+    let parseStatus: "parsed" | "failed" = "parsed";
+    let terminalState: "ready" | "ready_with_parse_error" = "ready";
+
+    try {
+      const rich = await deps.richParser.parse(
+        {
+          path: local.path,
+          originalFilename: intent.original_filename,
+          byteSize: local.byteSize,
+          sha256: local.sha256,
+        },
+        metadata.mediaTypeDetected,
       );
-    }
-    if (richOutputs.length === 0) {
-      richOutputs.push(
-        await putDerived(
-          deps.storage,
-          {
-            bucket: deps.readyBucket,
-            key: `${deps.derivedPrefix}${local.sha256}/docling/unsupported.json`,
-          },
-          new TextEncoder().encode(JSON.stringify({ supported: false })),
-          "application/json",
-        ),
+      richProcessorVersion = rich.processorVersion;
+      for (const artifact of rich.artifacts) {
+        const ref = {
+          bucket: deps.readyBucket,
+          key: doclingKey(deps.derivedPrefix, local.sha256, artifact),
+        };
+        richOutputs.push(
+          await putDerived(
+            deps.storage,
+            ref,
+            artifact.bytes,
+            artifact.kind === "json"
+              ? "application/json"
+              : artifact.kind === "html"
+                ? "text/html; charset=utf-8"
+                : "text/markdown; charset=utf-8",
+          ),
+        );
+      }
+      if (richOutputs.length === 0) {
+        richOutputs.push(
+          await putDerived(
+            deps.storage,
+            {
+              bucket: deps.readyBucket,
+              key: `${deps.derivedPrefix}${local.sha256}/docling/unsupported.json`,
+            },
+            new TextEncoder().encode(JSON.stringify({ supported: false })),
+            "application/json",
+          ),
+        );
+      }
+      richFinishedAt = await finishAttempt(
+        sql,
+        richAttempt.id,
+        richProcessorVersion,
+        richOutputs,
       );
+      deps.metrics.increment("file.parse.succeeded");
+    } catch {
+      richStatus = "failed";
+      richErrorCode = "RICH_PARSE_FAILED";
+      parseStatus = "failed";
+      terminalState = "ready_with_parse_error";
+      richFinishedAt = await failAttempt(sql, richAttempt.id, richErrorCode);
+      deps.metrics.increment("file.parse.failed");
     }
-    const richFinishedAt = await finishAttempt(
-      sql,
-      richAttempt.id,
-      rich.processorVersion,
-      richOutputs,
-    );
     deps.metrics.observe("file.parse.duration_ms", Date.now() - parseStarted);
 
     const readyKey = `${deps.readyPrefix}${local.sha256.slice(0, 2)}/${local.sha256}`;
@@ -614,21 +711,23 @@ export async function processCompletedUpload(
           {
             kind: "rich_parser",
             name: "docling",
-            version: rich.processorVersion,
-            status: "succeeded",
+            version: richProcessorVersion,
+            status: richStatus,
             outputRefs: richOutputs,
-            errorCode: null,
+            errorCode: richErrorCode,
             startedAt: richAttempt.startedAt,
             finishedAt: richFinishedAt,
           },
         ],
+        parseStatus,
+        terminalState,
       },
       deps,
     );
 
     await deps.storage.deleteObject(quarantineRef);
     deps.metrics.increment("file.upload.completed");
-    return "ready";
+    return terminalState;
   } finally {
     await rm(local.directory, { recursive: true, force: true });
   }
