@@ -401,3 +401,52 @@ test("renders the first PDF page from the authenticated Workbench content route"
     .poll(async () => Number(await canvas.getAttribute("width") ?? "0"))
     .toBeGreaterThan(0);
 });
+
+
+test("keeps a clean file downloadable when rich parsing fails", async ({ page }) => {
+  const researcher = environment.researchers[0];
+  if (!researcher?.projectId) throw new Error("Acceptance project missing");
+
+  await login(page, researcher.email, researcher.password);
+  await page.goto(`/projects/${researcher.projectId}/files`);
+
+  const uploadPanel = page.locator('section[aria-label="上传资料"]');
+  const bytes = Buffer.from("DOCLING_FAIL acceptance fallback body");
+  await uploadPanel.getByLabel("资料标题").fill("Parser fallback acceptance");
+  await uploadPanel.getByLabel("资料类型").selectOption("data_documentation");
+  await uploadPanel.getByLabel("访问级别").selectOption("project");
+  await uploadPanel.getByLabel("文件").setInputFiles({
+    name: "parser-fallback.txt",
+    mimeType: "text/plain",
+    buffer: bytes,
+  });
+  await uploadPanel.getByRole("button", { name: "开始上传" }).click();
+  await expect(
+    page.getByText("上传完成，正在进行安全扫描与解析。", { exact: true }),
+  ).toBeVisible();
+
+  const processed = await environment.files.processLatestUpload(researcher.projectId);
+  expect(processed.result).toBe("ready_with_parse_error");
+  expect(processed.fileVersionId).toBeTruthy();
+
+  const download = await page.context().request.get(
+    `/api/files/${processed.fileVersionId}/content?download=1`,
+  );
+  expect(download.status()).toBe(200);
+  expect(await download.body()).toEqual(bytes);
+
+  await page.reload();
+  const fileLink = page.getByRole("link", {
+    name: "Parser fallback acceptance",
+    exact: true,
+  });
+  await expect(fileLink).toBeVisible();
+  await fileLink.click();
+
+  await expect(page.getByText(/scan passed · parse failed/)).toBeVisible();
+  await expect(
+    page.getByText(/docling@unavailable · failed · RICH_PARSE_FAILED/),
+  ).toBeVisible();
+  await expect(page.getByText("acceptance extracted text latent trust interview evidence")).toBeVisible();
+  await expect(page.getByRole("link", { name: "下载原文件" })).toBeVisible();
+});
