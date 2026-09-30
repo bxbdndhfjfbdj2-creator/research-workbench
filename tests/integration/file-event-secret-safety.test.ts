@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { initializeFoundationDatabase } from "../../packages/db/src/client";
+import { assertSecretSafe as assertResearchPayloadSecretSafe } from "../../packages/domain/src/events";
 import { createFileUploadIntent } from "../../packages/application/src/files/upload-intent";
 import { handleTusHook } from "../../packages/application/src/files/tusd-hook";
 import { processCompletedUpload } from "../../packages/application/src/files/process-upload";
@@ -56,7 +57,7 @@ describe("file event and secret safety", () => {
     if (testDb) await stopTestDatabase(testDb);
   });
 
-  function assertSecretSafe(value: unknown, forbidden: string[]): void {
+  function assertNoMarkerLeak(value: unknown, forbidden: string[]): void {
     const serialized = JSON.stringify(value);
     for (const marker of forbidden) {
       expect(serialized, `unsafe marker leaked: ${marker}`).not.toContain(marker);
@@ -143,6 +144,22 @@ describe("file event and secret safety", () => {
       storage,
     };
   }
+
+  it("rejects AWS credential-shaped research payload fields", () => {
+    expect(() =>
+      assertResearchPayloadSecretSafe({
+        accessKeyId: "AWS_ACCESS_KEY_ID_MARKER_2026",
+      }),
+    ).toThrow(/Sensitive credential field/i);
+
+    expect(() =>
+      assertResearchPayloadSecretSafe({
+        storage: {
+          secretAccessKey: "AWS_SECRET_ACCESS_KEY_MARKER_2026",
+        },
+      }),
+    ).toThrow(/Sensitive credential field/i);
+  });
 
   it("keeps secrets and raw processor content out of governed facts", async () => {
     const beforeScientific = await testDb.client.sql.unsafe(
@@ -253,6 +270,62 @@ describe("file event and secret safety", () => {
     );
     expect(malwareResult).toBe("rejected_malware");
 
+    const parserFailureMarker = "DOCLING_INTERNAL_ERROR_MARKER_2026";
+    const parserFailure = await completeTusUpload({
+      title: "Parser failure safety file",
+      filename: "parser-failure-safety.txt",
+      bytes: Buffer.from("parser failure safety bytes"),
+      tusUploadId: "tus-parser-failure-safety",
+    });
+    const parserFailureResult = await processCompletedUpload(
+      testDb.client.sql,
+      parserFailure.intentId,
+      {
+        storage: parserFailure.storage,
+        scanner: new FakeMalwareScanner({
+          verdict: "clean",
+          scannerVersion: "clamav-test",
+          signatureDatabaseVersion: "db-test",
+        }),
+        metadataExtractor: new FakeMetadataExtractor({
+          mediaTypeDetected: "text/plain",
+          metadataText: tikaRaw,
+          extractedText: rawText,
+          processorVersion: "tika-test",
+        }),
+        richParser: new FakeRichDocumentParser({
+          errorCode: parserFailureMarker,
+        }),
+        quarantineBucket: "safety-quarantine",
+        readyBucket: "safety-ready",
+        readyPrefix: "ready/",
+        derivedPrefix: "derived/",
+        maxExtractedSearchBytes: 4096,
+        metrics: {
+          increment(name: string) {
+            metrics.push({ kind: "increment", name });
+          },
+          observe(name: string, value: number) {
+            metrics.push({ kind: "observe", name, value });
+          },
+        },
+      },
+    );
+    expect(parserFailureResult).toBe("ready_with_parse_error");
+
+    const parserFailureRows = await testDb.client.sql.unsafe(
+      `select status, error_code
+       from file_processing_records
+       where processor_name = 'docling'
+       order by created_at desc
+       limit 1`,
+    );
+    expect(parserFailureRows[0]).toMatchObject({
+      status: "failed",
+      error_code: "RICH_PARSE_FAILED",
+    });
+    expect(JSON.stringify(parserFailureRows)).not.toContain(parserFailureMarker);
+
     await registerExternalDataVersion(
       testDb.client.sql,
       projectId,
@@ -301,12 +374,13 @@ describe("file event and secret safety", () => {
       tikaRaw,
       doclingRaw,
       clamInternal,
+      parserFailureMarker,
       restrictedLocator,
     ];
-    assertSecretSafe(events, forbidden);
-    assertSecretSafe(outbox, forbidden);
-    assertSecretSafe(inbox, forbidden);
-    assertSecretSafe(metrics, forbidden);
+    assertNoMarkerLeak(events, forbidden);
+    assertNoMarkerLeak(outbox, forbidden);
+    assertNoMarkerLeak(inbox, forbidden);
+    assertNoMarkerLeak(metrics, forbidden);
 
     expect(metrics.length).toBeGreaterThan(0);
     for (const metric of metrics) {
