@@ -189,7 +189,8 @@ export function ResearchTaskDetail({
               </label>
               <label>引用 ID<input name="refId" /></label>
               <label>关系
-                <select name="refRelation" defaultValue="source">
+                <select name="refRelation" defaultValue="">
+                  <option value="">无</option>
                   <option value="deliverable">deliverable</option>
                   <option value="evidence">evidence</option>
                   <option value="source">source</option>
