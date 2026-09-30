@@ -160,7 +160,7 @@ async function seedProject(testDb: TestDatabase): Promise<void> {
     "insert into research_projects (id, portfolio_id, title, lead_member_id) values ('link-project', 'link-portfolio', 'Project', 'link-lead'), ('other-project', 'link-portfolio', 'Other Project', 'link-lead')",
   );
   await testDb.client.sql.unsafe(
-    "insert into research_tasks (id, project_id, title, status, created_by) values ('link-task', 'link-project', 'Task', 'open', 'link-lead'), ('other-task', 'other-project', 'Other Task', 'open', 'link-lead')",
+    "insert into research_tasks (id, project_id, title, status, assignee_member_id, created_by) values ('link-task', 'link-project', 'Task', 'open', 'link-lead', 'link-lead'), ('other-task', 'other-project', 'Other Task', 'open', 'link-lead', 'link-lead')",
   );
   await testDb.client.sql.unsafe(
     "insert into research_nodes (id, project_id, type, title) values ('link-node', 'link-project', 'analysis', 'Analysis')",
