@@ -18,21 +18,15 @@ export function ProjectNavigation({
 }) {
   return (
     <nav className="project-nav" aria-label="项目导航">
-      {ITEMS.map((item) =>
-        item.segment !== null ? (
-          <Link
-            className={item.label === active ? "active" : undefined}
-            href={`/projects/${projectId}${item.segment}`}
-            key={item.label}
-          >
-            {item.label}
-          </Link>
-        ) : (
-          <span aria-disabled="true" key={item.label}>
-            {item.label}
-          </span>
-        ),
-      )}
+      {ITEMS.map((item) => (
+        <Link
+          className={item.label === active ? "active" : undefined}
+          href={`/projects/${projectId}${item.segment}`}
+          key={item.label}
+        >
+          {item.label}
+        </Link>
+      ))}
     </nav>
   );
 }

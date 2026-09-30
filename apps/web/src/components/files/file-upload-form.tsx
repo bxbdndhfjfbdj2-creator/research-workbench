@@ -90,7 +90,7 @@ export function FileUploadForm({
           retryDelays: [0, 1000, 3000, 5000],
           chunkSize: 1024 * 1024,
         });
-        uppy.on("progress", (value) => setProgress(value));
+        uppy.on("progress", (value: number) => setProgress(value));
         uppy.addFile({
           name: selectedFile.name,
           type: selectedFile.type || undefined,
