@@ -1,13 +1,13 @@
 import { readFile } from "node:fs/promises";
-import type { DatabaseSql } from "@research-workbench/db/src/client";
-import { processCompletedUpload } from "@research-workbench/application/src/files/process-upload";
+import type { DatabaseSql } from "../../../packages/db/src/client";
+import { processCompletedUpload } from "../../../packages/application/src/files/process-upload";
 import type {
   LocalFileInput,
   MalwareScannerPort,
   MetadataExtractorPort,
   RichDocumentParserPort,
-} from "@research-workbench/file-processing/src/types";
-import { S3ObjectStorage } from "@research-workbench/storage/src/s3";
+} from "../../../packages/file-processing/src/types";
+import { S3ObjectStorage } from "../../../packages/storage/src/s3";
 import {
   GenericContainer,
   Network,
