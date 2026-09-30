@@ -184,7 +184,12 @@ export function assertSafeExternalLocator(value: string): void {
   }
 
   for (const key of parsed.searchParams.keys()) {
-    if (LOCATOR_SECRET_KEYS.has(normalizeLocatorKey(key))) {
+    const normalizedKey = normalizeLocatorKey(key);
+    const isSecretKey = [...LOCATOR_SECRET_KEYS].some(
+      (secretKey) =>
+        normalizedKey === secretKey || normalizedKey.endsWith(secretKey),
+    );
+    if (isSecretKey) {
       throw new Error("External locator must not contain secret credential parameters");
     }
   }
