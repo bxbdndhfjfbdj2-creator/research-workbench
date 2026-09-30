@@ -1176,3 +1176,55 @@ export async function getResearchFileDetail(
     externalReference,
   };
 }
+
+
+export type ProjectFileUploadStatus = {
+  id: string;
+  researchFileId: string | null;
+  title: string;
+  originalFilename: string;
+  fileKind: FileKind;
+  accessClass: FileAccessClass;
+  state: string;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export async function getProjectFileUploadStatuses(
+  member: CurrentMember,
+  projectId: string,
+): Promise<ProjectFileUploadStatus[] | null> {
+  const db = webDb();
+  try {
+    await authorizeProjectAccess(db.sql, member.id, projectId, "read");
+  } catch {
+    return null;
+  }
+
+  const rows = await db.sql.unsafe(
+    `select fui.id, fui.research_file_id,
+            coalesce(rf.title, fui.proposed_title, fui.original_filename) as display_title,
+            fui.original_filename, fui.file_kind, fui.access_class, fui.state,
+            fui.created_by, fui.created_at, fui.updated_at
+     from file_upload_intents fui
+     left join research_files rf on rf.id = fui.research_file_id
+     where fui.project_id = $1
+     order by fui.created_at desc, fui.id desc
+     limit 20`,
+    [projectId],
+  );
+
+  return rows.map((row) => ({
+    id: String(row.id),
+    researchFileId: row.research_file_id ? String(row.research_file_id) : null,
+    title: String(row.display_title),
+    originalFilename: String(row.original_filename),
+    fileKind: row.file_kind as FileKind,
+    accessClass: row.access_class as FileAccessClass,
+    state: String(row.state),
+    createdBy: String(row.created_by),
+    createdAt: new Date(row.created_at as string | Date),
+    updatedAt: new Date(row.updated_at as string | Date),
+  }));
+}
