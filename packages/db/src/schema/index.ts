@@ -13,3 +13,5 @@ export * from "./agent-runtime";
 export * from "./harness-session-reference";
 export * from "./research-file";
 export * from "./file-ingest";
+
+export * from "./task-review";

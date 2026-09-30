@@ -169,3 +169,36 @@ form button { border: 0; border-radius: 8px; padding: 11px 14px; background: #17
 @media (max-width: 900px) {
   .agent-create-form { grid-template-columns: 1fr; }
 }
+
+
+.research-work-section { margin-top: 24px; }
+.research-work-section > h3 { margin: 0 0 12px; }
+.research-work-list, .submission-history, .review-inbox, .research-task-detail { display: grid; gap: 14px; }
+.research-work-card, .submission-card, .review-inbox-card {
+  background: #fff; border: 1px solid #e1e4e8; border-radius: 14px; padding: 18px;
+  box-shadow: 0 6px 20px rgba(17, 19, 21, .04);
+}
+.research-work-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.research-work-heading h3 { margin: 5px 0 0; }
+.research-work-facts { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 12px; color: #626a73; font-size: 13px; }
+.research-work-form textarea, .review-actions textarea {
+  min-height: 88px; resize: vertical; border: 1px solid #cfd4da; border-radius: 8px; padding: 10px 12px; font: inherit;
+}
+.research-work-form select, .inline-action-form select, .submission-ref-grid select {
+  border: 1px solid #cfd4da; border-radius: 8px; padding: 10px 12px; background: #fff;
+}
+.task-action-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.task-action-grid form { margin: 0; display: block; }
+.secondary-action { background: #e4e8eb !important; color: #30363d !important; }
+.submission-ref-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.submission-card details { margin-top: 12px; }
+.review-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid #edf0f2; display: grid; gap: 8px; }
+.linked-decisions { display: grid; gap: 6px; color: #5f6670; font-size: 13px; }
+.review-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.review-actions form { margin-top: 12px; }
+.review-inbox-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; align-items: start; }
+.review-inbox-card h3 { margin: 5px 0 6px; }
+.review-inbox-card > .meta { grid-column: 1 / -1; }
+@media (max-width: 760px) {
+  .submission-ref-grid { grid-template-columns: 1fr; }
+}

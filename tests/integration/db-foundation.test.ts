@@ -39,6 +39,12 @@ describe("foundation database", () => {
       "research_events",
       "outbox_events",
       "integration_inbox",
+      "task_submissions",
+      "task_submission_contributors",
+      "task_submission_refs",
+      "review_requests",
+      "review_actions",
+      "review_decision_links",
     ]) {
       expect(tables.has(expected), expected).toBe(true);
     }

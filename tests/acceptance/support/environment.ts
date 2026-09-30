@@ -28,6 +28,10 @@ import {
   requestHumanInteraction,
 } from "../../../packages/application/src/agents/human-interaction";
 import { ingestAgentResult } from "../../../packages/application/src/agents/result-ingestion";
+import { registerExternalDataVersion } from "../../../packages/application/src/files/file-service";
+import type { JsonValue } from "../../../packages/domain/src/events";
+import { markOutboxDelivered } from "../../../packages/queue/src/outbox-dispatcher";
+import { createReviewResolutionOutboxHandler } from "../../../apps/worker/src/review-runtime";
 import {
   createDbClient,
   initializeFoundationDatabase,
@@ -49,6 +53,21 @@ type AcceptanceUser = {
 export type FileLinkTargets = {
   researchNodeRevisionId: string;
   researchResultId: string;
+};
+
+export type ReviewResolutionController = {
+  processDecisionReviewEvents: (
+    projectId: string,
+    decisionTitle: string,
+  ) => Promise<{ decisionId: string; processed: number }>;
+};
+
+export type RestrictedFileFixture = {
+  projectId: string;
+  fileVersionId: string;
+  title: string;
+  locator: string;
+  accessPolicyRef: string;
 };
 
 export type FileAcceptanceController = {
@@ -75,6 +94,8 @@ export type AcceptanceEnvironment = {
   lead: AcceptanceUser;
   researchers: AcceptanceUser[];
   fileLinkTargets: FileLinkTargets;
+  restrictedFile?: RestrictedFileFixture;
+  reviewResolution: ReviewResolutionController;
   files?: FileAcceptanceController;
   scientificDecision: {
     projectId: string;
@@ -564,7 +585,10 @@ async function seedBusinessData(
 }
 
 export async function startAcceptanceEnvironment(
-  options: { fileServices?: StartedFileAcceptanceServices } = {},
+  options: {
+    fileServices?: StartedFileAcceptanceServices;
+    workReviewFixtures?: boolean;
+  } = {},
 ): Promise<AcceptanceEnvironment> {
   const container: StartedPostgreSqlContainer =
     await new PostgreSqlContainer("postgres:16-alpine").start();
@@ -576,6 +600,24 @@ export async function startAcceptanceEnvironment(
 
   try {
     const seeded = await seedBusinessData(db, databaseUrl, authSecret);
+    const workReviewOwner = seeded.researchers[0];
+    const restrictedExternal =
+      options.workReviewFixtures && workReviewOwner?.projectId
+        ? await registerExternalDataVersion(
+            db.sql,
+            workReviewOwner.projectId,
+            {
+              title: "Restricted work reference acceptance",
+              fileKind: "dataset",
+              accessClass: "restricted",
+              uriOrLocator: "secure-datalake://acceptance/work-review-42",
+              manifestHash: "manifest-work-review-42",
+              accessPolicyRef: "policy:work-review-42",
+              versionLabel: "release-work-review-42",
+            },
+            { type: "human", id: workReviewOwner.id },
+          )
+        : null;
 
     child = spawn(
       "pnpm",
@@ -612,8 +654,61 @@ export async function startAcceptanceEnvironment(
       throw new Error(`${String(error)}\nNext.js output:\n${output}`);
     }
 
+    const reviewResolutionHandler = createReviewResolutionOutboxHandler(db.sql);
+
     return {
       ...seeded,
+      ...(restrictedExternal && workReviewOwner?.projectId
+        ? {
+            restrictedFile: {
+              projectId: workReviewOwner.projectId,
+              fileVersionId: restrictedExternal.fileVersion.id,
+              title: restrictedExternal.researchFile.title,
+              locator: restrictedExternal.externalReference.uriOrLocator,
+              accessPolicyRef: restrictedExternal.externalReference.accessPolicyRef,
+            },
+          }
+        : {}),
+      reviewResolution: {
+        async processDecisionReviewEvents(projectId: string, decisionTitle: string) {
+          const decisions = await db.sql.unsafe(
+            `select id
+             from scientific_decisions
+             where project_id = $1 and title = $2
+             order by created_at desc, id desc
+             limit 1`,
+            [projectId, decisionTitle],
+          );
+          const decision = decisions[0];
+          if (!decision) throw new Error("Acceptance scientific decision not found");
+          const decisionId = String(decision.id);
+
+          const rows = await db.sql.unsafe(
+            `select id, event_type, payload, attempts
+             from outbox_events
+             where event_type = 'scientific.decision.reviewed'
+               and status = 'pending'
+               and payload->>'decisionId' = $1
+             order by created_at asc, id asc`,
+            [decisionId],
+          );
+
+          for (const row of rows) {
+            const handled = await reviewResolutionHandler({
+              id: String(row.id),
+              eventType: String(row.event_type),
+              payload: row.payload as JsonValue,
+              attempts: Number(row.attempts ?? 0),
+            });
+            if (!handled) {
+              throw new Error("Acceptance review-resolution handler declined its event");
+            }
+            await markOutboxDelivered(db.sql, String(row.id));
+          }
+
+          return { decisionId, processed: rows.length };
+        },
+      },
       ...(options.fileServices
         ? {
             files: {

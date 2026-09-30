@@ -32,7 +32,7 @@ describe("Harness SDK integration boundary", () => {
       "insert into research_projects (id, portfolio_id, title, lead_member_id) values ('harness-sdk-project', 'harness-sdk-portfolio', 'Harness SDK Project', 'harness-sdk-lead')",
     );
     await testDb.client.sql.unsafe(
-      "insert into research_tasks (id, project_id, title, status, created_by) values ('harness-sdk-research-task', 'harness-sdk-project', 'SDK smoke', 'open', 'harness-sdk-lead')",
+      "insert into research_tasks (id, project_id, title, status, assignee_member_id, created_by) values ('harness-sdk-research-task', 'harness-sdk-project', 'SDK smoke', 'open', 'harness-sdk-lead', 'harness-sdk-lead')",
     );
     await testDb.client.sql.unsafe(
       `insert into agent_tasks
