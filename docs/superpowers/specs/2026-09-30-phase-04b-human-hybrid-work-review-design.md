@@ -237,6 +237,7 @@ completed
 
 - v2 正式 TaskSubmission 只允许从 `in_progress` 创建；`open` 必须先 start，`blocked` 必须先 unblock；
 - v2 completed 必须存在至少一个正式 TaskSubmission；
+- `reviewPolicy=none` 的 `completeUnreviewedTask(taskId, submissionId)` 必须显式指定且只接受该 task 的最新 Submission；完成事件记录该 `submissionId`，作为无 Review 场景的 accepted-submission provenance；
 - required-review task 无 approved Review 时不能 completed；
 - `awaiting_review` 必须能定位当前 Submission / Review；
 - cancelled 不删除 Submission、Review、AgentRun；
@@ -627,7 +628,7 @@ packages/application/src/tasks/
 - `cancelResearchTask()`
 - `reopenResearchTask()`
 - legacy v1 compatibility completion path
-- v2 `completeUnreviewedTask()`
+- v2 `completeUnreviewedTask(taskId, submissionId)`
 
 Phase 4B 后不向 v2 caller 暴露任意 `setResearchTaskStatus(taskId, status)`。
 
@@ -675,6 +676,7 @@ Phase 4B 后不向 v2 caller 暴露任意 `setResearchTaskStatus(taskId, status)
 - `RESEARCH_TASK_EXECUTION_MODE_CHANGED`
 - `RESEARCH_TASK_BLOCKED`
 - `RESEARCH_TASK_REOPENED`
+- `RESEARCH_TASK_COMPLETED`
 - `TASK_SUBMISSION_CREATED`
 - `REVIEW_REQUEST_CREATED`
 - `REVIEW_REASSIGNED`
@@ -945,7 +947,8 @@ Phase 4B 必须提供稳定 query source，使 4C 以后可以读取：
 - cross-project ref rejection；
 - wrong-project AgentRun contributor rejection；
 - required task 无 approved Review 无法 completed；
-- reviewPolicy none 仍要求正式 Submission 后才能 completed；
+- reviewPolicy none 仍要求正式 Submission 后才能 completed，并且 completion 必须绑定最新 Submission；
+- reopen 后旧 completion event / accepted submission provenance 保留；
 - reviewer human-only；
 - reviewer 必须有项目访问权；
 - contributor cannot self-review；
@@ -1074,10 +1077,11 @@ Phase 4B 只有同时满足以下条件才完成：
 16. reopen 不覆盖旧 accepted Submission。
 17. review reassignment 不擦除旧 reviewer history。
 18. duplicate external/async processing 不复制 resolution facts。
-19. restricted FileVersion ref 不扩大访问权限。
-20. secrets/raw sensitive research content 不得进入 Event/Outbox 普通载荷。
-21. legacy task 不得通过伪造历史满足新模型。
-22. 4C projection 不得成为 4B 正式状态的写入源。
+19. unreviewed completion 必须显式定位 accepted latest Submission，不能仅靠“当前 task 已完成”推断。
+20. restricted FileVersion ref 不扩大访问权限.
+21. secrets/raw sensitive research content 不得进入 Event/Outbox 普通载荷。
+22. legacy task 不得通过伪造历史满足新模型。
+23. 4C projection 不得成为 4B 正式状态的写入源。
 
 ## 22. 规格结论
 
