@@ -4,6 +4,8 @@ import { assertHumanActor, type ActorRef } from "@research-workbench/domain/src/
 import {
   RESEARCH_TASK_STATUSES,
   type ResearchTask,
+  type ResearchTaskExecutionMode,
+  type ResearchTaskReviewPolicy,
   type ResearchTaskStatus,
 } from "@research-workbench/domain/src/research-task";
 import { authorizeProjectAccess } from "../auth/authorize";
@@ -17,7 +19,11 @@ type TaskRow = {
   title: string;
   description: string | null;
   status: ResearchTaskStatus;
-  assignee_member_id: string | null;
+  assignee_member_id: string;
+  execution_mode: ResearchTaskExecutionMode;
+  review_policy: ResearchTaskReviewPolicy;
+  acceptance_criteria: string[];
+  workflow_version: 1 | 2;
   created_by: string;
   created_at: Date;
   updated_at: Date;
@@ -31,6 +37,10 @@ function toTask(row: TaskRow): ResearchTask {
     description: row.description,
     status: row.status,
     assigneeMemberId: row.assignee_member_id,
+    executionMode: row.execution_mode,
+    reviewPolicy: row.review_policy,
+    acceptanceCriteria: row.acceptance_criteria,
+    workflowVersion: row.workflow_version,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -39,8 +49,8 @@ function toTask(row: TaskRow): ResearchTask {
 
 async function loadTask(sql: DatabaseSql, taskId: string): Promise<TaskRow> {
   const rows = (await sql.unsafe(
-    `select id, project_id, title, description, status, assignee_member_id,
-            created_by, created_at, updated_at
+    `select id, project_id, title, description, status, assignee_member_id, execution_mode, review_policy,
+            acceptance_criteria, workflow_version, created_by, created_at, updated_at
      from research_tasks where id = $1 limit 1`,
     [taskId],
   )) as readonly TaskRow[];
@@ -77,24 +87,23 @@ export async function createResearchTask(
   assertHumanActor(actor);
   await authorizeProjectAccess(sql, actor.id, projectId, "read");
 
-  if (input.assigneeMemberId) {
-    await assertAssignableMember(sql, projectId, input.assigneeMemberId);
-  }
+  const assigneeMemberId = input.assigneeMemberId ?? actor.id;
+  await assertAssignableMember(sql, projectId, assigneeMemberId);
 
   return runInTransaction(sql, async (tx) => {
     const id = randomUUID();
     const rows = (await tx.unsafe(
       `insert into research_tasks
-        (id, project_id, title, description, status, assignee_member_id, created_by)
-       values ($1, $2, $3, $4, 'open', $5, $6)
-       returning id, project_id, title, description, status, assignee_member_id,
-                 created_by, created_at, updated_at`,
+        (id, project_id, title, description, status, assignee_member_id, created_by, workflow_version)
+       values ($1, $2, $3, $4, 'open', $5, $6, 2)
+       returning id, project_id, title, description, status, assignee_member_id, execution_mode, review_policy,
+                 acceptance_criteria, workflow_version, created_by, created_at, updated_at`,
       [
         id,
         projectId,
         input.title.trim(),
         input.description?.trim() || null,
-        input.assigneeMemberId ?? null,
+        assigneeMemberId,
         actor.id,
       ],
     )) as readonly TaskRow[];
@@ -107,7 +116,7 @@ export async function createResearchTask(
       payload: {
         researchTaskId: id,
         title: input.title.trim(),
-        assigneeMemberId: input.assigneeMemberId ?? null,
+        assigneeMemberId,
       },
     });
     await enqueueOutbox(tx, {
@@ -138,8 +147,8 @@ export async function assignResearchTask(
       `update research_tasks
        set assignee_member_id = $2, updated_at = now()
        where id = $1
-       returning id, project_id, title, description, status, assignee_member_id,
-                 created_by, created_at, updated_at`,
+       returning id, project_id, title, description, status, assignee_member_id, execution_mode, review_policy,
+                 acceptance_criteria, workflow_version, created_by, created_at, updated_at`,
       [taskId, memberId],
     )) as readonly TaskRow[];
 
@@ -181,8 +190,8 @@ export async function setResearchTaskStatus(
       `update research_tasks
        set status = $2, updated_at = now()
        where id = $1
-       returning id, project_id, title, description, status, assignee_member_id,
-                 created_by, created_at, updated_at`,
+       returning id, project_id, title, description, status, assignee_member_id, execution_mode, review_policy,
+                 acceptance_criteria, workflow_version, created_by, created_at, updated_at`,
       [taskId, status],
     )) as readonly TaskRow[];
 
