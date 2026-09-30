@@ -127,3 +127,43 @@ test("resumes one tus upload after a chunk connection reset", async ({ page }) =
   expect(ready.tusUploadId).toBe(uploaded.tusUploadId);
   expect(ready.fileVersionCount).toBe(1);
 });
+
+
+test("quarantines malware without exposing a formal file", async ({ page }) => {
+  const researcher = environment.researchers[0];
+  if (!researcher?.projectId) throw new Error("Acceptance project missing");
+
+  await login(page, researcher.email, researcher.password);
+  await page.goto(`/projects/${researcher.projectId}/files`);
+
+  const uploadPanel = page.locator('section[aria-label="上传资料"]');
+  await uploadPanel.getByLabel("资料标题").fill("Malware quarantine proof");
+  await uploadPanel.getByLabel("资料类型").selectOption("literature");
+  await uploadPanel.getByLabel("访问级别").selectOption("project");
+  await uploadPanel.getByLabel("文件").setInputFiles({
+    name: "malware-marker.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("MALWARE_MARKER acceptance quarantine proof"),
+  });
+  await uploadPanel.getByRole("button", { name: "开始上传" }).click();
+
+  await expect(
+    page.getByText("上传完成，正在进行安全扫描与解析。", { exact: true }),
+  ).toBeVisible();
+
+  const processed = await environment.files.processLatestUpload(researcher.projectId);
+  expect(processed.result).toBe("rejected_malware");
+  expect(processed.fileVersionId).toBeNull();
+
+  const facts = await environment.files.getLatestUploadFacts(researcher.projectId);
+  expect(facts.state).toBe("rejected_malware");
+  expect(facts.fileVersionCount).toBe(0);
+
+  await page.reload();
+  const rejected = page
+    .getByTestId("file-upload-status")
+    .filter({ hasText: "Malware quarantine proof" });
+  await expect(rejected).toBeVisible();
+  await expect(rejected).toContainText("rejected_malware");
+  await expect(rejected.getByRole("link", { name: "下载原文件" })).toHaveCount(0);
+});
