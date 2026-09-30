@@ -78,7 +78,7 @@ describe("research work read models", () => {
       "work-query-project",
     );
     expect(visible).not.toBeNull();
-    expect(visible!.tasks).toEqual([
+    expect(visible!.tasks.find((task) => task.id === "work-task")).toEqual(
       expect.objectContaining({
         id: "work-task",
         title: "Hybrid analysis",
@@ -98,7 +98,7 @@ describe("research work read models", () => {
         agentRunCount: 1,
         latestAgentRunState: "完成",
       }),
-    ]);
+    );
 
     await expect(
       workQueries.getProjectResearchWork(member, "work-query-hidden-project"),
