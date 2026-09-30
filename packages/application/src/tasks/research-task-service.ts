@@ -575,15 +575,126 @@ export async function cancelResearchTask(
   taskId: string,
   actor: ActorRef,
 ): Promise<ResearchTask> {
-  return transitionResearchTask(
-    sql,
-    taskId,
-    ["open", "in_progress", "blocked"],
-    "cancelled",
-    "RESEARCH_TASK_CANCELLED",
-    "research.task.cancelled",
-    actor,
-  );
+  assertHumanActor(actor);
+
+  return runInTransaction(sql, async (tx) => {
+    let task = await lockTask(tx, taskId);
+    task = await ensureWorkflowV2ForMutation(tx, task, actor);
+    await assertTaskOwnerOrLead(
+      tx,
+      task.project_id,
+      task.assignee_member_id,
+      actor.id,
+    );
+
+    if (["open", "in_progress", "blocked"].includes(task.status)) {
+      const rows = (await tx.unsafe(
+        `update research_tasks
+         set status = 'cancelled', updated_at = now()
+         where id = $1
+         returning id, project_id, title, description, status, assignee_member_id,
+                   execution_mode, review_policy, acceptance_criteria, workflow_version,
+                   created_by, created_at, updated_at`,
+        [task.id],
+      )) as readonly TaskRow[];
+      const cancelled = rows[0];
+      if (!cancelled) throw new Error("Research task cancellation returned no row");
+      await recordTaskEvent(
+        tx,
+        cancelled,
+        "RESEARCH_TASK_CANCELLED",
+        "research.task.cancelled",
+        actor,
+      );
+      return toTask(cancelled);
+    }
+
+    if (task.status !== "awaiting_review") {
+      throw new Error("Research task state does not allow cancellation");
+    }
+
+    const reviewRows = (await tx.unsafe(
+      `select rr.id, rr.status, rr.task_submission_id
+       from review_requests rr
+       join task_submissions ts on ts.id = rr.task_submission_id
+       where ts.research_task_id = $1
+       order by ts.submission_number desc
+       limit 1
+       for update of rr`,
+      [task.id],
+    )) as readonly {
+      id: string;
+      status: string;
+      task_submission_id: string;
+    }[];
+    const review = reviewRows[0];
+    if (!review) {
+      throw new Error("Awaiting-review task has no review request");
+    }
+    if (review.status === "awaiting_scientific_decision") {
+      throw new Error(
+        "Research task cannot be cancelled while review awaits a scientific decision",
+      );
+    }
+    if (review.status !== "pending") {
+      throw new Error("Research task does not have a pending review to cancel");
+    }
+
+    await tx.unsafe(
+      `update review_requests
+       set status = 'cancelled', updated_at = now()
+       where id = $1`,
+      [review.id],
+    );
+    await tx.unsafe(
+      `insert into review_actions
+        (id, review_request_id, action, actor_type, actor_id, resulting_status)
+       values ($1, $2, 'cancel', 'human', $3, 'cancelled')`,
+      [randomUUID(), review.id, actor.id],
+    );
+
+    const taskRows = (await tx.unsafe(
+      `update research_tasks
+       set status = 'cancelled', updated_at = now()
+       where id = $1
+       returning id, project_id, title, description, status, assignee_member_id,
+                 execution_mode, review_policy, acceptance_criteria, workflow_version,
+                 created_by, created_at, updated_at`,
+      [task.id],
+    )) as readonly TaskRow[];
+    const cancelled = taskRows[0];
+    if (!cancelled) throw new Error("Research task cancellation returned no row");
+
+    await appendResearchEvent(tx, {
+      id: randomUUID(),
+      projectId: task.project_id,
+      eventType: "REVIEW_CANCELLED",
+      actor,
+      payload: {
+        reviewRequestId: review.id,
+        researchTaskId: task.id,
+        taskSubmissionId: review.task_submission_id,
+      },
+    });
+    await enqueueOutbox(tx, {
+      id: randomUUID(),
+      eventType: "research.task.review.cancelled",
+      payload: {
+        projectId: task.project_id,
+        reviewRequestId: review.id,
+        researchTaskId: task.id,
+        taskSubmissionId: review.task_submission_id,
+      },
+    });
+    await recordTaskEvent(
+      tx,
+      cancelled,
+      "RESEARCH_TASK_CANCELLED",
+      "research.task.cancelled",
+      actor,
+    );
+    return toTask(cancelled);
+  });
 }
 
 export async function reopenResearchTask(
