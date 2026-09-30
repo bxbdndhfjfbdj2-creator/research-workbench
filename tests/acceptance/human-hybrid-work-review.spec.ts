@@ -98,7 +98,7 @@ function taskStatus(page: import("@playwright/test").Page) {
 }
 
 test.beforeAll(async () => {
-  environment = await startAcceptanceEnvironment();
+  environment = await startAcceptanceEnvironment({ workReviewFixtures: true });
 });
 
 test.afterAll(async () => {
@@ -372,7 +372,9 @@ test("restricted FileVersion provenance stays redacted for an authorized ordinar
   const owner = environment.researchers[0];
   const ordinaryMember = environment.researchers[1];
   const restricted = environment.restrictedFile;
-  if (!owner?.projectId || !ordinaryMember) throw new Error("Acceptance users missing");
+  if (!owner?.projectId || !ordinaryMember || !restricted) {
+    throw new Error("Acceptance users or restricted fixture missing");
+  }
 
   await loginAs(page, owner);
   const taskUrl = await createStartedTask(

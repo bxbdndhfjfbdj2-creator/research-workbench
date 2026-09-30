@@ -94,7 +94,7 @@ export type AcceptanceEnvironment = {
   lead: AcceptanceUser;
   researchers: AcceptanceUser[];
   fileLinkTargets: FileLinkTargets;
-  restrictedFile: RestrictedFileFixture;
+  restrictedFile?: RestrictedFileFixture;
   reviewResolution: ReviewResolutionController;
   files?: FileAcceptanceController;
   scientificDecision: {
@@ -160,7 +160,6 @@ async function seedBusinessData(
     completedRunId: string;
   };
   fileLinkTargets: FileLinkTargets;
-  restrictedFile: RestrictedFileFixture;
 }> {
   await initializeFoundationDatabase(db.sql);
   const bootstrapAuth = createWorkbenchAuth(databaseUrl, authSecret, {
@@ -562,21 +561,6 @@ async function seedBusinessData(
     },
   });
 
-  const restrictedExternal = await registerExternalDataVersion(
-    db.sql,
-    primaryResearcher.projectId,
-    {
-      title: "Restricted work reference acceptance",
-      fileKind: "dataset",
-      accessClass: "restricted",
-      uriOrLocator: "secure-datalake://acceptance/work-review-42",
-      manifestHash: "manifest-work-review-42",
-      accessPolicyRef: "policy:work-review-42",
-      versionLabel: "release-work-review-42",
-    },
-    graphActor,
-  );
-
   return {
     lead,
     researchers,
@@ -597,18 +581,14 @@ async function seedBusinessData(
       researchNodeRevisionId: revisionA.id,
       researchResultId: result.id,
     },
-    restrictedFile: {
-      projectId: primaryResearcher.projectId,
-      fileVersionId: restrictedExternal.fileVersion.id,
-      title: restrictedExternal.researchFile.title,
-      locator: restrictedExternal.externalReference.uriOrLocator,
-      accessPolicyRef: restrictedExternal.externalReference.accessPolicyRef,
-    },
   };
 }
 
 export async function startAcceptanceEnvironment(
-  options: { fileServices?: StartedFileAcceptanceServices } = {},
+  options: {
+    fileServices?: StartedFileAcceptanceServices;
+    workReviewFixtures?: boolean;
+  } = {},
 ): Promise<AcceptanceEnvironment> {
   const container: StartedPostgreSqlContainer =
     await new PostgreSqlContainer("postgres:16-alpine").start();
@@ -620,6 +600,24 @@ export async function startAcceptanceEnvironment(
 
   try {
     const seeded = await seedBusinessData(db, databaseUrl, authSecret);
+    const workReviewOwner = seeded.researchers[0];
+    const restrictedExternal =
+      options.workReviewFixtures && workReviewOwner?.projectId
+        ? await registerExternalDataVersion(
+            db.sql,
+            workReviewOwner.projectId,
+            {
+              title: "Restricted work reference acceptance",
+              fileKind: "dataset",
+              accessClass: "restricted",
+              uriOrLocator: "secure-datalake://acceptance/work-review-42",
+              manifestHash: "manifest-work-review-42",
+              accessPolicyRef: "policy:work-review-42",
+              versionLabel: "release-work-review-42",
+            },
+            { type: "human", id: workReviewOwner.id },
+          )
+        : null;
 
     child = spawn(
       "pnpm",
@@ -660,6 +658,17 @@ export async function startAcceptanceEnvironment(
 
     return {
       ...seeded,
+      ...(restrictedExternal && workReviewOwner?.projectId
+        ? {
+            restrictedFile: {
+              projectId: workReviewOwner.projectId,
+              fileVersionId: restrictedExternal.fileVersion.id,
+              title: restrictedExternal.researchFile.title,
+              locator: restrictedExternal.externalReference.uriOrLocator,
+              accessPolicyRef: restrictedExternal.externalReference.accessPolicyRef,
+            },
+          }
+        : {}),
       reviewResolution: {
         async processDecisionReviewEvents(projectId: string, decisionTitle: string) {
           const decisions = await db.sql.unsafe(
