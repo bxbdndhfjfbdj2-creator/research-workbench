@@ -34,6 +34,10 @@ import {
   type DbClient,
 } from "../../../packages/db/src/client";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import {
+  startFileAcceptanceServices,
+  type StartedFileAcceptanceServices,
+} from "./file-services";
 
 type AcceptanceUser = {
   id: string;
@@ -42,9 +46,36 @@ type AcceptanceUser = {
   projectId?: string;
 };
 
+export type FileLinkTargets = {
+  researchNodeRevisionId: string;
+  researchResultId: string;
+};
+
+export type FileAcceptanceController = {
+  tusEndpoint: string;
+  processLatestUpload: (projectId: string) => Promise<{
+    intentId: string;
+    state: string;
+    result: "ready" | "ready_with_parse_error" | "rejected_malware" | "already_terminal";
+    researchFileId: string | null;
+    fileVersionId: string | null;
+  }>;
+  getLatestUploadFacts: (projectId: string) => Promise<{
+    intentId: string;
+    state: string;
+    tusUploadId: string | null;
+    researchFileId: string | null;
+    inboxCount: number;
+    completedOutboxCount: number;
+    fileVersionCount: number;
+  }>;
+};
+
 export type AcceptanceEnvironment = {
   lead: AcceptanceUser;
   researchers: AcceptanceUser[];
+  fileLinkTargets: FileLinkTargets;
+  files?: FileAcceptanceController;
   scientificDecision: {
     projectId: string;
     decisionId: string;
@@ -59,6 +90,10 @@ export type AcceptanceEnvironment = {
     completedRunId: string;
   };
   stop: () => Promise<void>;
+};
+
+export type FileAcceptanceEnvironment = Omit<AcceptanceEnvironment, "files"> & {
+  files: FileAcceptanceController;
 };
 
 async function waitForServer(url: string, child: ChildProcess): Promise<void> {
@@ -103,6 +138,7 @@ async function seedBusinessData(
     waitingRunId: string;
     completedRunId: string;
   };
+  fileLinkTargets: FileLinkTargets;
 }> {
   await initializeFoundationDatabase(db.sql);
   const bootstrapAuth = createWorkbenchAuth(databaseUrl, authSecret, {
@@ -512,10 +548,16 @@ async function seedBusinessData(
       waitingRunId: waitingRun.id,
       completedRunId: completedRun.id,
     },
+    fileLinkTargets: {
+      researchNodeRevisionId: revisionA.id,
+      researchResultId: result.id,
+    },
   };
 }
 
-export async function startAcceptanceEnvironment(): Promise<AcceptanceEnvironment> {
+export async function startAcceptanceEnvironment(
+  options: { fileServices?: StartedFileAcceptanceServices } = {},
+): Promise<AcceptanceEnvironment> {
   const container: StartedPostgreSqlContainer =
     await new PostgreSqlContainer("postgres:16-alpine").start();
   const databaseUrl = container.getConnectionUri();
@@ -538,6 +580,7 @@ export async function startAcceptanceEnvironment(): Promise<AcceptanceEnvironmen
           BETTER_AUTH_SECRET: authSecret,
           BETTER_AUTH_URL: "http://127.0.0.1:3100",
           NODE_ENV: "development",
+          ...(options.fileServices?.webEnvironment ?? {}),
         },
         stdio: ["ignore", "pipe", "pipe"],
       },
@@ -563,6 +606,19 @@ export async function startAcceptanceEnvironment(): Promise<AcceptanceEnvironmen
 
     return {
       ...seeded,
+      ...(options.fileServices
+        ? {
+            files: {
+              tusEndpoint: options.fileServices.tusEndpoint,
+              processLatestUpload(projectId: string) {
+                return options.fileServices!.processLatestUpload(db.sql, projectId);
+              },
+              getLatestUploadFacts(projectId: string) {
+                return options.fileServices!.getLatestUploadFacts(db.sql, projectId);
+              },
+            },
+          }
+        : {}),
       async stop() {
         if (child && child.exitCode === null) {
           child.kill("SIGTERM");
@@ -579,12 +635,24 @@ export async function startAcceptanceEnvironment(): Promise<AcceptanceEnvironmen
         }
         await db.close();
         await container.stop();
+        await options.fileServices?.stop();
       },
     };
   } catch (error) {
     if (child && child.exitCode === null) child.kill("SIGKILL");
     await db.close();
     await container.stop();
+    await options.fileServices?.stop();
     throw error;
   }
+}
+
+export async function startFileAcceptanceEnvironment(): Promise<FileAcceptanceEnvironment> {
+  const fileServices = await startFileAcceptanceServices();
+  const environment = await startAcceptanceEnvironment({ fileServices });
+  if (!environment.files) {
+    await environment.stop();
+    throw new Error("File acceptance services were not attached");
+  }
+  return environment as FileAcceptanceEnvironment;
 }

@@ -59,7 +59,8 @@ export function FileDetail({ file }: { file: ResearchFileDetailViewModel }) {
               <strong>v{version.versionNumber}</strong> · {version.originalFilename}
               <div className="meta">
                 {version.mediaType ?? "external reference"} · {version.byteSize ?? "—"} bytes ·
-                scan {version.scanStatus} · parse {version.parseStatus}
+                scan {version.scanStatus} · parse {version.parseStatus} · uploaded by{" "}
+                <span>{version.createdBy}</span>
               </div>
               {version.sha256 ? <code>{version.sha256}</code> : null}
               {version.changeSummary ? <p>{version.changeSummary}</p> : null}
