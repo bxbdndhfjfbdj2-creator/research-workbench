@@ -517,6 +517,39 @@ describe("research task workflow v2", () => {
         [latest],
       ),
     ).toHaveLength(1);
+
+    await expect(
+      completeUnreviewedTask(
+        testDb.client.sql,
+        task.id,
+        latest,
+        { type: "human", id: memberId },
+      ),
+    ).rejects.toThrow(/new|submission|reopen|accepted/i);
+
+    const nextCycleSubmission = await insertSubmission(task.id, 3);
+    const recompleted = await completeUnreviewedTask(
+      testDb.client.sql,
+      task.id,
+      nextCycleSubmission,
+      { type: "human", id: memberId },
+    );
+    expect(recompleted.status).toBe("completed");
+
+    const completionRows = await testDb.client.sql.unsafe(
+      `select payload
+       from research_events
+       where event_type = 'RESEARCH_TASK_COMPLETED'
+         and payload->>'researchTaskId' = $1
+       order by created_at, id`,
+      [task.id],
+    );
+    expect(completionRows).toHaveLength(2);
+    expect(completionRows[1]?.payload).toEqual({
+      researchTaskId: task.id,
+      submissionId: nextCycleSubmission,
+      completionKind: "unreviewed_acceptance",
+    });
   });
 
   it("rejects required-review, wrong-task, and non-owner unreviewed completion", async () => {
