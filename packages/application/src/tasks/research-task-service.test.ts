@@ -74,6 +74,11 @@ describe("research task service", () => {
 
     expect(task.status).toBe("open");
     expect(task.projectId).toBe(projectId);
+    expect(task.assigneeMemberId).toBe("task-member");
+    expect(task.executionMode).toBe("human");
+    expect(task.reviewPolicy).toBe("none");
+    expect(task.acceptanceCriteria).toEqual([]);
+    expect(task.workflowVersion).toBe(2);
 
     const assigned = await assignResearchTask(
       testDb.client.sql,
