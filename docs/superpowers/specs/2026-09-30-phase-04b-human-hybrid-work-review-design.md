@@ -1,7 +1,7 @@
 # Phase 4B — Human/Hybrid ResearchTask & Unified Review Design
 
 - 日期：2026-09-30
-- 状态：书面规格待用户审阅
+- 状态：已批准（2026-09-30，二次设计复核通过）
 - 设计分支：`phase/04b-human-hybrid-work-review`
 - 产品主线：AI-native Research Workbench
 - 适用团队：固定 6 人、单团队、私有部署
@@ -160,15 +160,26 @@ workflow v2 中该字段必须非空，并且必须指向该项目可访问的 a
 
 ### 4.3 workflow version 与 legacy 兼容
 
-为避免伪造历史 provenance：
+为避免伪造历史 provenance，同时避免 legacy active task 永久绕过新治理：
 
 - Phase 4B migration 前已经存在的 ResearchTask → `workflow_version=1`
 - migration 后新建 ResearchTask → `workflow_version=2`
-- v1 task 保留 legacy completion 语义，不强迫补造 Submission
+- migration 本身不补造 Submission / Review / contributor 历史
 - v1 已完成 task 若显式 reopen → 在同一事务升级为 v2，然后遵守 Phase 4B 新规则
-- 不允许通过创建伪 Submission/Review 来“补齐”迁移前历史
+- v1 `open | in_progress | blocked` task 在 migration 后发生第一次生命周期写操作时必须先原子升级为 v2，再执行该动作
+- v1 `cancelled` task 保持历史终态，不自动升级
+- legacy upgrade 只声明“从此刻开始采用 v2 workflow”，不对 migration 前的执行/交付历史作任何推断
 
-如果未来显式提供 legacy active task 升级功能，应作为独立业务动作设计；Phase 4B 第一版不自动升级尚未完成的 v1 task。
+内部 `ensureWorkflowV2ForMutation()`（或等价边界）负责 active legacy task 的升级。升级必须：
+
+1. 锁 ResearchTask；
+2. 验证当前 accountable owner 仍是 active、可访问该 project 的 human；
+3. 若旧 owner 已无资格，则普通生命周期动作失败关闭；项目主理人/团队总负责人必须通过 owner reassignment 在同一事务指定合格 owner 并完成升级；
+4. 保留默认 `executionMode=human`、`reviewPolicy=none`、`acceptanceCriteria=[]`，除非该升级动作本身显式改变它们；
+5. 写 `RESEARCH_TASK_WORKFLOW_UPGRADED`，只记录 taskId/fromVersion/toVersion；
+6. 不创建伪造的 TaskSubmission、ReviewRequest 或 completion provenance。
+
+因此 migration 后不存在可长期继续使用 legacy direct-completion 语义的 active task。
 
 ### 4.4 executionMode
 
@@ -237,11 +248,13 @@ completed
 
 - v2 正式 TaskSubmission 只允许从 `in_progress` 创建；`open` 必须先 start，`blocked` 必须先 unblock；
 - v2 completed 必须存在至少一个正式 TaskSubmission；
-- `reviewPolicy=none` 的 `completeUnreviewedTask(taskId, submissionId)` 必须显式指定且只接受该 task 的最新 Submission；完成事件记录该 `submissionId`，作为无 Review 场景的 accepted-submission provenance；
+- `reviewPolicy=none` 的 `completeUnreviewedTask(taskId, submissionId)` 必须显式指定且只接受该 task 的最新 Submission；
+- 每一次 Task → `completed` 都必须在同一事务写 `RESEARCH_TASK_COMPLETED`，payload 至少包含 `researchTaskId`、`submissionId`、`completionKind=unreviewed_acceptance | review_approved`；这条 append-only event 是当前完成周期 accepted-submission provenance；
 - required-review task 无 approved Review 时不能 completed；
 - `awaiting_review` 必须能定位当前 Submission / Review；
 - cancelled 不删除 Submission、Review、AgentRun；
-- `awaiting_review` 期间不能直接 cancel；当前 Review 必须先以 changes_requested/rejected 回到 `in_progress`，再显式 cancel；
+- `awaiting_review` 且 Review 为 `pending` 时允许显式 cancel：Task 与 Review 在同一事务分别进入 `cancelled`，历史保留；
+- `awaiting_scientific_decision` 时禁止取消 Task，必须先让已创建的 ScientificDecision 进入 terminal `approved | rejected`，普通 Review 恢复后才能取消；
 - completed → reopen 必须写事件，不覆盖旧 accepted Submission；
 - reopen 后必须产生新 Submission cycle 才能再次完成；
 - 不再向 v2 caller 暴露“任意 set status”接口。
@@ -279,6 +292,8 @@ task_submissions
 
 整个表必须 immutable / append-only，禁止 UPDATE / DELETE。
 
+`summary` 必须是 trim 后非空的 bounded text；即使主要交付是 FileVersion/ResearchResult，也要求 human submitter 用简短文字说明这次正式提交是什么。
+
 ### 5.3 requirement snapshot
 
 创建 Submission 时冻结：
@@ -310,6 +325,7 @@ task_submission_contributors
 约束：
 
 - append-only；
+- 建议唯一约束 `UNIQUE(submission_id, contributor_kind, contributor_ref)`，避免重复 contributor fact；
 - `submitted_by_member_id` 自动加入 human contributor；
 - human contributor 必须是 active、可访问该 project 的 human member；
 - agent_run contributor 必须属于同 project；
@@ -405,6 +421,7 @@ review_requests
 │    approved
 │    changes_requested
 │    rejected
+│    cancelled
 ├─ created_by_member_id
 ├─ created_at
 └─ updated_at
@@ -444,13 +461,16 @@ pending
   → approved
   → changes_requested
   → rejected
+  → cancelled
   → awaiting_scientific_decision
 
 awaiting_scientific_decision
-  → pending    # linked ScientificDecision resolved; ordinary review resumes
+  → pending    # linked ScientificDecision terminal-resolved; ordinary review resumes
 ```
 
-`approved`、`changes_requested`、`rejected` 是该 ReviewRequest 的终态，不可再次修改。
+`approved`、`changes_requested`、`rejected`、`cancelled` 是该 ReviewRequest 的终态，不可再次修改。
+
+`cancelled` 不是 reviewer 对交付质量的判断，而是 Task cancellation 的伴随事实：当 Task 正处于 pending Review，允许的 `cancelResearchTask()` 必须原子取消该 Review。
 
 reviewer actions：
 
@@ -458,6 +478,8 @@ reviewer actions：
 - `request_changes`
 - `reject`
 - `escalate_to_scientific_decision`
+
+Task cancellation 另记录 `cancel` ReviewAction；它不是 reviewer decision action。
 
 建议要求：
 
@@ -472,9 +494,10 @@ reviewer actions：
 - request_changes → Task in_progress
 - reject → Task in_progress
 - escalate → Task 保持 awaiting_review
-- linked ScientificDecision resolved → Review 恢复 pending；Task 仍 awaiting_review
+- linked ScientificDecision terminal-resolved → Review 恢复 pending；Task 仍 awaiting_review
+- Task 在 pending Review 时被合法取消 → Review cancelled + Task cancelled（同一事务）
 
-reject 默认不取消 ResearchTask。
+reject 默认不取消 ResearchTask；cancel 也不伪装成 reject。
 
 ## 7. ReviewAction
 
@@ -490,6 +513,7 @@ review_actions
 │    approve
 │    request_changes
 │    reject
+│    cancel
 │    escalate_to_scientific_decision
 │    scientific_decision_resolved
 ├─ actor_type
@@ -501,7 +525,7 @@ review_actions
 └─ created_at
 ```
 
-除系统记录 `scientific_decision_resolved` 外，普通 Review decision action 的 actor 必须是 human。
+除系统记录 `scientific_decision_resolved` 外，ReviewAction actor 必须是 human。`cancel` 只能由 task cancellation service 在授权通过后写入，不允许 reviewer action endpoint 单独伪造。
 
 整个表 immutable / append-only。
 
@@ -566,8 +590,10 @@ ScientificDecision 完成后，通过明确 application orchestration / Outbox c
 
 - 幂等；
 - 验证 link；
+- 重新读取 linked ScientificDecision 当前状态；仅 `approved | rejected` 视为 terminal resolution；
+- 对现有 `scientific.decision.reviewed` 非终态事件（如 `awaiting_lead` / `needs_evidence`）必须 no-op，不能提前恢复 Review；
 - Review 仍处于 awaiting_scientific_decision；
-- append 一次 `scientific_decision_resolved`；
+- append 一次 `scientific_decision_resolved`，记录 decisionId 与 terminal status；
 - Review → pending；
 - 不自动决定 approve/reject。
 
@@ -582,6 +608,9 @@ ScientificDecision 完成后，通过明确 application orchestration / Outbox c
 | 改 reviewPolicy | 第一份 Submission 前：accountable owner、项目主理人、团队总负责人；之后不可修改 |
 | 改 executionMode | accountable owner、项目主理人、团队总负责人 |
 | 改 accountable owner | 项目主理人、团队总负责人 |
+| cancel open/in_progress/blocked task | accountable owner、项目主理人、团队总负责人 |
+| cancel pending-review task | accountable owner、项目主理人、团队总负责人；必须同时取消 Review |
+| cancel awaiting-scientific-decision task | 禁止，直到 linked Decision terminal-resolved |
 | 创建 AgentTask | 沿用现有 human-only AgentTask 规则 |
 | 创建 TaskSubmission | accountable owner |
 | 初始指定 reviewer | accountable owner；项目主理人/团队总负责人可纠正 |
@@ -625,7 +654,7 @@ packages/application/src/tasks/
 - `setResearchTaskExecutionMode()`
 - `blockResearchTask()`
 - `unblockResearchTask()`
-- `cancelResearchTask()`
+- `cancelResearchTask()`（pending Review 时原子写 Review cancelled；awaiting ScientificDecision 时 fail closed）
 - `reopenResearchTask()`
 - legacy v1 compatibility completion path
 - v2 `completeUnreviewedTask(taskId, submissionId)`
@@ -674,15 +703,18 @@ Phase 4B 后不向 v2 caller 暴露任意 `setResearchTaskStatus(taskId, status)
 - `RESEARCH_TASK_REQUIREMENTS_CHANGED`
 - `RESEARCH_TASK_OWNER_CHANGED`
 - `RESEARCH_TASK_EXECUTION_MODE_CHANGED`
+- `RESEARCH_TASK_WORKFLOW_UPGRADED`
 - `RESEARCH_TASK_BLOCKED`
 - `RESEARCH_TASK_REOPENED`
 - `RESEARCH_TASK_COMPLETED`
+- `RESEARCH_TASK_CANCELLED`
 - `TASK_SUBMISSION_CREATED`
 - `REVIEW_REQUEST_CREATED`
 - `REVIEW_REASSIGNED`
 - `REVIEW_APPROVED`
 - `REVIEW_CHANGES_REQUESTED`
 - `REVIEW_REJECTED`
+- `REVIEW_CANCELLED`
 - `REVIEW_ESCALATED`
 - `REVIEW_SCIENTIFIC_DECISION_RESOLVED`
 
@@ -704,15 +736,12 @@ Phase 4B 后不向 v2 caller 暴露任意 `setResearchTaskStatus(taskId, status)
 
 ### 12.1 secret safety
 
-以下内容写入前均调用 `assertSecretSafe()`：
+必须精确区分结构化 payload guard 与自由文本：
 
-- task requirements；
-- acceptanceCriteria；
-- Submission summary；
-- requirement snapshot；
-- Review comment；
-- escalation payload；
-- ResearchEvent / Outbox payload。
+- `assertSecretSafe()` 继续用于结构化 JSON payload，例如 requirement snapshot、escalation evidence/impact/change、ResearchEvent、Outbox；它检测 credential-shaped **key**，不声称能识别任意自然语言中的秘密；
+- task title/description、acceptanceCriteria string、Submission summary、Review comment 属于正式业务自由文本，必须有明确长度上限与 trim/empty 校验，但 Phase 4B 不伪装成具有通用 DLP/secret scanning 能力；
+- 自由文本不得复制进入 ResearchEvent、Outbox、普通结构化日志或错误消息；这些面只保留稳定 ID、状态和低敏感度元数据；
+- server action/application error 不回显数据库 raw payload、restricted locator 或外部 adapter 内部错误。
 
 ### 12.2 restricted FileVersion
 
@@ -790,7 +819,9 @@ review action：
 - escalation 中 Decision/link/state/action 任一步失败 → 整个事务 rollback；
 - Outbox 通知失败 → 已提交正式 DB facts 不回滚，按现有 Outbox retry；
 - AgentRun 失败 → 不影响已存在 Submission/Review 历史；
-- ScientificDecision unresolved → Review 保持 awaiting_scientific_decision；
+- ScientificDecision unresolved/non-terminal → Review 保持 awaiting_scientific_decision；
+- pending Review task cancel → Review cancelled 与 Task cancelled 原子提交；
+- awaiting-scientific-decision task cancel → fail closed；
 - duplicate callback/outbox → 幂等，不复制正式事实。
 
 ## 15. 数据库迁移
@@ -814,13 +845,15 @@ migration 需要：
 
 旧 task：
 
-- assignee null → 用 created_by 回填；
+- assignee null → 用 created_by 回填（仅保证 FK/non-null，不宣称该成员仍具 v2 owner 资格）；
 - executionMode → human；
 - reviewPolicy → none；
 - acceptanceCriteria → []；
 - workflowVersion → 1。
 
 新 task application create → workflowVersion 2。
+
+active v1 task 在第一次 post-migration lifecycle mutation 时必须按 4.3 原子升级 v2；若回填 owner 已 inactive/失去项目访问，则先由项目主理人/团队总负责人指定合格 owner，再完成升级。migration 不伪造此前 provenance。
 
 ## 16. Web 产品结构
 
@@ -965,11 +998,16 @@ Phase 4B 必须提供稳定 query source，使 4C 以后可以读取：
 - concurrent double submit；
 - concurrent double approve；
 - concurrent double escalation；
-- secret-shaped field rejection；
-- ResearchEvent 不复制完整研究文本；
+- structured credential-shaped key rejection；
+- 自由文本不被错误复制到 ResearchEvent/Outbox/普通日志；
 - restricted file ref 不扩大 locator/content access；
-- legacy v1 completion compatibility；
-- legacy completed task reopen upgrades to v2。
+- active legacy v1 首次 post-migration lifecycle mutation 原子升级 v2，不再允许 legacy direct completion；
+- legacy owner 失效时升级 fail closed，直到 lead 指定合格 owner；
+- legacy completed task reopen upgrades to v2；
+- pending Review task cancellation 原子保存 Review cancelled + Task cancelled；
+- awaiting-scientific-decision cancellation fail closed；
+- non-terminal ScientificDecision reviewed event 不得提前 resume Review；
+- required/unreviewed 两种完成路径都产生一次带 submissionId 的 RESEARCH_TASK_COMPLETED。
 
 ### 18.2 Browser acceptance
 
@@ -1079,9 +1117,12 @@ Phase 4B 只有同时满足以下条件才完成：
 18. duplicate external/async processing 不复制 resolution facts。
 19. unreviewed completion 必须显式定位 accepted latest Submission，不能仅靠“当前 task 已完成”推断。
 20. restricted FileVersion ref 不扩大访问权限.
-21. secrets/raw sensitive research content 不得进入 Event/Outbox 普通载荷。
-22. legacy task 不得通过伪造历史满足新模型。
-23. 4C projection 不得成为 4B 正式状态的写入源。
+21. 结构化 credential payload 必须经过 secret-key guard；自由文本不得复制到 Event/Outbox/普通日志。
+22. active legacy task 不得永久停留在 v1 绕过新规则；首次 post-migration lifecycle mutation 必须升级 v2，但不得伪造旧 provenance。
+23. pending Review cancellation 必须留下独立 cancelled 历史，不能伪装成 reviewer reject；awaiting ScientificDecision 时不得取消。
+24. Decision resolution 只有 linked ScientificDecision 为 terminal approved/rejected 才能恢复 Review。
+25. 每次 Task completed 都必须显式绑定 accepted submissionId。
+26. 4C projection 不得成为 4B 正式状态的写入源。
 
 ## 22. 规格结论
 
