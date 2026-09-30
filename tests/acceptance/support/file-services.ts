@@ -246,7 +246,7 @@ export async function startFileAcceptanceServices(): Promise<StartedFileAcceptan
         "-hooks-http=http://host.testcontainers.internal:3100/api/internal/file-upload-hook",
         "-hooks-enabled-events=pre-create,post-finish",
         "-hooks-http-retry=3",
-        "-hooks-http-backoff=1",
+        "-hooks-http-backoff=1s",
         "-max-size=16777216",
         "-disable-download",
         "-disable-termination",
