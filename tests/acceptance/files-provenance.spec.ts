@@ -9,6 +9,48 @@ test.describe.configure({ mode: "serial" });
 
 let environment: FileAcceptanceEnvironment;
 
+
+function minimalPdfBuffer(text: string): Buffer {
+  const escaped = text.replace(/([\\()])/g, "\\$1");
+  const stream = `BT
+/F1 18 Tf
+20 100 Td
+(${escaped}) Tj
+ET
+`;
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 160] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+    `<< /Length ${Buffer.byteLength(stream, "utf8")} >>
+stream
+${stream}endstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  let body = "%PDF-1.4\n";
+  const offsets: number[] = [];
+  for (let index = 0; index < objects.length; index += 1) {
+    offsets.push(Buffer.byteLength(body, "utf8"));
+    body += `${index + 1} 0 obj\n${objects[index]}\nendobj\n`;
+  }
+  const xrefOffset = Buffer.byteLength(body, "utf8");
+  body += `xref
+0 ${objects.length + 1}
+0000000000 65535 f 
+`;
+  for (const offset of offsets) {
+    body += `${String(offset).padStart(10, "0")} 00000 n 
+`;
+  }
+  body += `trailer
+<< /Size ${objects.length + 1} /Root 1 0 R >>
+startxref
+${xrefOffset}
+%%EOF
+`;
+  return Buffer.from(body, "utf8");
+}
+
 async function login(page: import("@playwright/test").Page, email: string, password: string) {
   await page.goto("/login");
   await page.getByLabel("邮箱").fill(email);
@@ -311,4 +353,51 @@ test("registers restricted external data without tus bytes and redacts locator f
     page.getByText("secure-datalake://acceptance/study-42", { exact: true }),
   ).toHaveCount(0);
   await expect(page.getByText("受限元数据", { exact: true })).toHaveCount(3);
+});
+
+
+test("renders the first PDF page from the authenticated Workbench content route", async ({ page }) => {
+  const researcher = environment.researchers[0];
+  if (!researcher?.projectId) throw new Error("Acceptance project missing");
+
+  await login(page, researcher.email, researcher.password);
+  await page.goto(`/projects/${researcher.projectId}/files`);
+
+  const uploadPanel = page.locator('section[aria-label="上传资料"]');
+  await uploadPanel.getByLabel("资料标题").fill("PDF preview acceptance");
+  await uploadPanel.getByLabel("资料类型").selectOption("literature");
+  await uploadPanel.getByLabel("访问级别").selectOption("project");
+  await uploadPanel.getByLabel("文件").setInputFiles({
+    name: "preview-proof.pdf",
+    mimeType: "application/pdf",
+    buffer: minimalPdfBuffer("Phase 4A PDF"),
+  });
+  await uploadPanel.getByRole("button", { name: "开始上传" }).click();
+  await expect(
+    page.getByText("上传完成，正在进行安全扫描与解析。", { exact: true }),
+  ).toBeVisible();
+
+  const processed = await environment.files.processLatestUpload(researcher.projectId);
+  expect(processed.result).toBe("ready");
+
+  await page.reload();
+  const contentResponsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname.startsWith("/api/files/") &&
+      !url.searchParams.has("download") &&
+      response.request().method() === "GET"
+    );
+  });
+  await page.getByRole("link", { name: "PDF preview acceptance", exact: true }).click();
+  const contentResponse = await contentResponsePromise;
+  expect([200, 206]).toContain(contentResponse.status());
+
+  const preview = page.locator('figure[aria-label="PDF preview acceptance PDF preview"]');
+  await expect(preview).toBeVisible();
+  const canvas = preview.locator("canvas");
+  await expect(canvas).toHaveAttribute("aria-hidden", "false", { timeout: 15_000 });
+  await expect
+    .poll(async () => Number(await canvas.getAttribute("width") ?? "0"))
+    .toBeGreaterThan(0);
 });
