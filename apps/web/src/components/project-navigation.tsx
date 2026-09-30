@@ -2,6 +2,7 @@ import Link from "next/link";
 
 const ITEMS = [
   { label: "总览", segment: "" },
+  { label: "研究工作", segment: "/work" },
   { label: "研究网络", segment: "/network" },
   { label: "证据与结果", segment: "/evidence" },
   { label: "科学决策", segment: "/decisions" },
