@@ -14,7 +14,7 @@ async function login(page: import("@playwright/test").Page, email: string, passw
   await page.getByLabel("邮箱").fill(email);
   await page.getByLabel("密码").fill(password);
   await page.getByRole("button", { name: "登录" }).click();
-  await page.waitForURL("**/portfolio");
+  await expect(page.getByRole("heading", { name: "研究组合" })).toBeVisible();
 }
 
 test.beforeAll(async () => {
