@@ -2,6 +2,7 @@
 
 - 日期：2026-09-30
 - 状态：书面规格待用户审阅
+- 设计分支：`phase/04b-human-hybrid-work-review`
 - 产品主线：AI-native Research Workbench
 - 适用团队：固定 6 人、单团队、私有部署
 - 前置阶段：Phase 4A Files & Provenance 已完成实现与 exact-head full CI；Draft PR #5 仍保持人工合并闸门
@@ -198,6 +199,13 @@ task 处于 `awaiting_review` 时不允许改变 executionMode 或 reviewPolicy�
 
 `required` 表示必须有当前 Submission 对应的 approved Review 后才能 completed。
 
+reviewPolicy 是任务级质量治理选择：
+
+- 第一份正式 TaskSubmission 创建前，可由 accountable owner、项目主理人或团队总负责人显式修改；
+- 第一份正式 TaskSubmission 一旦创建，reviewPolicy 对该 ResearchTask 永久锁定；
+- 不允许在 Review 被拒绝/要求修改后把 `required` 改为 `none` 绕过审核；
+- 若后续确需不同 reviewPolicy，应创建新的 ResearchTask，而不是改写已有审核历史。
+
 ### 4.6 ResearchTask 状态机
 
 Phase 4B v2 状态：
@@ -211,7 +219,7 @@ open
 in_progress
   → awaiting_review      # required review + formal submission
 
-open / in_progress / blocked
+in_progress
   → completed            # reviewPolicy=none + formal submission exists
 
 awaiting_review
@@ -227,10 +235,12 @@ completed
 
 约束：
 
+- v2 正式 TaskSubmission 只允许从 `in_progress` 创建；`open` 必须先 start，`blocked` 必须先 unblock；
 - v2 completed 必须存在至少一个正式 TaskSubmission；
 - required-review task 无 approved Review 时不能 completed；
 - `awaiting_review` 必须能定位当前 Submission / Review；
 - cancelled 不删除 Submission、Review、AgentRun；
+- `awaiting_review` 期间不能直接 cancel；当前 Review 必须先以 changes_requested/rejected 回到 `in_progress`，再显式 cancel；
 - completed → reopen 必须写事件，不覆盖旧 accepted Submission；
 - reopen 后必须产生新 Submission cycle 才能再次完成；
 - 不再向 v2 caller 暴露“任意 set status”接口。
@@ -353,15 +363,16 @@ UNIQUE(submission_id, ref_kind, ref_id, relation)
 
 1. 锁 ResearchTask；
 2. 验证 actor 是 accountable owner；
-3. 验证 task 当前允许提交；
-4. 验证 contributors；
-5. 验证全部 refs；
-6. 分配单调递增 submissionNumber；
-7. 冻结 requirement snapshot；
-8. 写 Submission / contributors / refs；
-9. 根据 reviewPolicy 推进状态；
-10. 写 ResearchEvent；
-11. 写 Outbox。
+3. 验证 workflow v2 task 当前状态严格为 `in_progress`；
+4. 验证 reviewPolicy 已满足锁定规则；
+5. 验证 contributors；
+6. 验证全部 refs；
+7. 分配单调递增 submissionNumber；
+8. 冻结 requirement snapshot；
+9. 写 Submission / contributors / refs；
+10. 根据 reviewPolicy 推进状态；
+11. 写 ResearchEvent；
+12. 写 Outbox。
 
 required-review 时 reviewer 必须作为本次 submit 输入显式指定，并在同一事务创建 ReviewRequest 与 assignment history。
 
@@ -566,7 +577,8 @@ ScientificDecision 完成后，通过明确 application orchestration / Outbox c
 | 操作 | 允许主体 |
 |---|---|
 | 创建 ResearchTask | 有 project 访问权的 human member |
-| 修改 v2 task requirements | accountable owner、项目主理人、团队总负责人 |
+| 修改 v2 task title/description/acceptanceCriteria | accountable owner、项目主理人、团队总负责人 |
+| 改 reviewPolicy | 第一份 Submission 前：accountable owner、项目主理人、团队总负责人；之后不可修改 |
 | 改 executionMode | accountable owner、项目主理人、团队总负责人 |
 | 改 accountable owner | 项目主理人、团队总负责人 |
 | 创建 AgentTask | 沿用现有 human-only AgentTask 规则 |
@@ -605,10 +617,13 @@ packages/application/src/tasks/
 负责：
 
 - `createResearchTask()`
+- `startResearchTask()`
 - `updateResearchTaskRequirements()`
+- `setResearchTaskReviewPolicy()`（仅第一份 Submission 前）
 - `assignResearchTaskOwner()`
 - `setResearchTaskExecutionMode()`
 - `blockResearchTask()`
+- `unblockResearchTask()`
 - `cancelResearchTask()`
 - `reopenResearchTask()`
 - legacy v1 compatibility completion path
@@ -628,7 +643,6 @@ Phase 4B 后不向 v2 caller 暴露任意 `setResearchTaskStatus(taskId, status)
 
 负责：
 
-- `assignReviewer()`
 - `reassignReviewer()`
 - `approveSubmission()`
 - `requestSubmissionChanges()`
@@ -937,6 +951,8 @@ Phase 4B 必须提供稳定 query source，使 4C 以后可以读取：
 - contributor cannot self-review；
 - reassignment event/history；
 - old Submission requirement snapshot 不漂移；
+- reviewPolicy 第一份 Submission 后不可降级/修改；
+- v2 仅允许 `in_progress` task 创建正式 Submission；
 - changes requested 后创建新 Submission；
 - Review approved 不改变 official state；
 - ScientificDecision approved 不自动 approve Review；
