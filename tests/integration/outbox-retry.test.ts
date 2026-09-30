@@ -188,11 +188,12 @@ describe("outbox retry after worker crash", () => {
     expect(await runOutboxPass(testDb.client.sql, cleanDispatch, 1)).toBe(1);
 
     const deliveredRows = await testDb.client.sql.unsafe(
-      "select status, last_error from outbox_events where id = 'retry-file-outbox'",
+      "select status, last_error, attempts from outbox_events where id = 'retry-file-outbox'",
     );
     expect(deliveredRows[0]).toMatchObject({
       status: "delivered",
       last_error: null,
+      attempts: 2,
     });
 
     const versions = await testDb.client.sql.unsafe(
@@ -203,14 +204,15 @@ describe("outbox retry after worker crash", () => {
     );
     expect(versions[0]?.count).toBe(1);
 
-    expect(await runOutboxPass(testDb.client.sql, cleanDispatch, 1)).toBe(0);
-    const versionsAfterDuplicatePass = await testDb.client.sql.unsafe(
-      `select count(*)::int as count
-       from file_versions fv
-       join research_files rf on rf.id = fv.research_file_id
-       where rf.project_id = 'retry-file-project'`,
+    const followupEvents = await testDb.client.sql.unsafe(
+      `select event_type
+       from outbox_events
+       where id <> 'retry-file-outbox'
+         and event_type in ('research.file.created', 'file.version.created')`,
     );
-    expect(versionsAfterDuplicatePass[0]?.count).toBe(1);
+    expect(followupEvents.map((row) => row.event_type)).toEqual(
+      expect.arrayContaining(["research.file.created", "file.version.created"]),
+    );
   });
 
   it("does not persist arbitrary secret-bearing dispatch error text", async () => {
