@@ -28,6 +28,24 @@ async function contentText(input: LocalFileInput): Promise<string> {
   return (await readFile(input.path)).toString("utf8");
 }
 
+async function ensureAcceptanceBuckets(storage: S3ObjectStorage): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      await storage.ensureBucket(QUARANTINE_BUCKET);
+      await storage.ensureBucket(READY_BUCKET);
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  throw new Error(
+    `SeaweedFS S3 gateway did not become ready: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+  );
+}
+
 class AcceptanceScanner implements MalwareScannerPort {
   async scan(input: LocalFileInput) {
     const content = await contentText(input);
@@ -223,8 +241,7 @@ export async function startFileAcceptanceServices(): Promise<StartedFileAcceptan
       credentials: { accessKeyId: ACCESS_KEY, secretAccessKey: SECRET_KEY },
       pathStyle: true,
     });
-    await storage.ensureBucket(QUARANTINE_BUCKET);
-    await storage.ensureBucket(READY_BUCKET);
+    await ensureAcceptanceBuckets(storage);
 
     tusd = await new GenericContainer("ghcr.io/tus/tusd:v2.9.2")
       .withNetwork(network)
