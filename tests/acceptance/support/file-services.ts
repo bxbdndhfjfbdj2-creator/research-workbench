@@ -223,6 +223,7 @@ async function latestFacts(sql: DatabaseSql, projectId: string) {
 
 export async function startFileAcceptanceServices(): Promise<StartedFileAcceptanceServices> {
   const network: StartedNetwork = await new Network().start();
+  let seaweedLogTail = "";
   let seaweed: StartedTestContainer | undefined;
   let tusd: StartedTestContainer | undefined;
 
@@ -232,6 +233,11 @@ export async function startFileAcceptanceServices(): Promise<StartedFileAcceptan
       .withNetworkAliases("seaweedfs")
       .withCommand(["server", "-s3", "-s3.port=8333"])
       .withExposedPorts(8333)
+      .withLogConsumer((stream) => {
+        stream.on("data", (chunk) => {
+          seaweedLogTail = `${seaweedLogTail}${String(chunk)}`.slice(-12_000);
+        });
+      })
       .withWaitStrategy(
         Wait.forLogMessage(/Start Seaweed S3 API Server .* at http port 8333/),
       )
@@ -245,7 +251,25 @@ export async function startFileAcceptanceServices(): Promise<StartedFileAcceptan
       credentials: { accessKeyId: ACCESS_KEY, secretAccessKey: SECRET_KEY },
       pathStyle: true,
     });
-    await ensureAcceptanceBuckets(storage);
+    let s3Probe = "not-run";
+    try {
+      const response = await fetch(s3Endpoint, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(5_000),
+      });
+      s3Probe = `HTTP ${response.status}`;
+      await response.body?.cancel();
+    } catch (error) {
+      s3Probe = `ERROR ${error instanceof Error ? error.message : String(error)}`;
+    }
+
+    try {
+      await ensureAcceptanceBuckets(storage);
+    } catch (error) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\nS3 probe: ${s3Probe}\nSeaweedFS logs:\n${seaweedLogTail}`,
+      );
+    }
 
     tusd = await new GenericContainer("ghcr.io/tus/tusd:v2.9.2")
       .withNetwork(network)
