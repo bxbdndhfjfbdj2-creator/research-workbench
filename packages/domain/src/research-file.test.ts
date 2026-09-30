@@ -44,6 +44,8 @@ describe("research file domain", () => {
       "https://example.test/data?token=secret",
       "https://example.test/data?api_key=secret",
       "https://example.test/data?signature=secret",
+      "https://object.example.test/data?X-Amz-Credential=AKIA%2Fscope&X-Amz-Signature=deadbeef",
+      "https://object.example.test/data?X-Amz-Security-Token=session-token",
     ];
     for (const locator of rejected) {
       expect(() => domain.assertSafeExternalLocator(locator)).toThrow(/credential|secret/i);
