@@ -13,7 +13,7 @@
     "build": "pnpm --filter @research-workbench/web build && tsc -p tsconfig.base.json --noEmit",
     "db:migrate:test": "vitest run tests/integration/db-foundation.test.ts",
     "bootstrap:team": "tsx scripts/bootstrap-team.ts",
-    "acceptance": "playwright test tests/acceptance/phase-01.spec.ts tests/acceptance/research-network.spec.ts tests/acceptance/scientific-decision-lock.spec.ts tests/acceptance/agent-runtime.spec.ts"
+    "acceptance": "playwright test tests/acceptance/phase-01.spec.ts tests/acceptance/research-network.spec.ts tests/acceptance/scientific-decision-lock.spec.ts tests/acceptance/agent-runtime.spec.ts tests/acceptance/files-provenance.spec.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
