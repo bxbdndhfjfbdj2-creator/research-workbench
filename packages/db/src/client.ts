@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
@@ -22,15 +22,21 @@ export function createDbClient(connectionString: string): DbClient {
 }
 
 export async function initializeFoundationDatabase(sql: Sql): Promise<void> {
-  const migrationPath = resolve(process.cwd(), "packages/db/migrations/0000_foundation.sql");
-  const migration = await readFile(migrationPath, "utf8");
-  const statements = migration
-    .split("-- statement-breakpoint")
-    .map((statement) => statement.trim())
-    .filter(Boolean);
+  const migrationDir = resolve(process.cwd(), "packages/db/migrations");
+  const migrationFiles = (await readdir(migrationDir))
+    .filter((file) => /^\d{4}_.+\.sql$/.test(file))
+    .sort((left, right) => left.localeCompare(right));
 
-  for (const statement of statements) {
-    await sql.unsafe(statement);
+  for (const migrationFile of migrationFiles) {
+    const migration = await readFile(resolve(migrationDir, migrationFile), "utf8");
+    const statements = migration
+      .split("-- statement-breakpoint")
+      .map((statement) => statement.trim())
+      .filter(Boolean);
+
+    for (const statement of statements) {
+      await sql.unsafe(statement);
+    }
   }
 }
 

@@ -162,3 +162,21 @@ phase/06-deployment-hardening
 - 第六阶段计划：`2026-09-29-phase-06-deployment-hardening.md`
 
 阶段计划共同继承本文的 Global Constraints 和 Git/测试规则；阶段计划中的 Interfaces 块是相邻 Task 之间唯一允许依赖的稳定接口说明。
+
+
+## 2026-09-30 路线顺序修订说明
+
+产品主线仍是 AI-native Research Workbench。真实 Agent Provider/API 暂时不作为下一阶段前置条件；第三阶段已验证 Agent Runtime 继续保留。
+
+在进入原“GitHub 工程事实”计划之前，插入 Research Operations 三个子阶段：
+
+1. **Phase 4A — Files & Provenance**：文件、不可变版本、上传/导入、安全扫描、解析、科研关联和 Knowledge/Ontology 前向兼容。
+2. **Phase 4B — Human/Hybrid Work & Review**：ResearchTask 人工/Agent/Hybrid 执行、提交物、统一 Review。
+3. **Phase 4C — Progress Projections & Cockpit**：项目/组合科研状态投影、待审核/受阻/近期变化。
+
+原文件 `2026-09-29-phase-04-github-integration.md`、`phase-05-assets-dashboards.md`、`phase-06-deployment-hardening.md` 作为历史计划保留，不删除、不根据旧编号直接执行。后续在各自进入设计闸门时重新编号/重写。
+
+Phase 4A 正式书面规格：
+`docs/superpowers/specs/2026-09-30-phase-04a-files-provenance-design.md`
+
+新增横切约束：成熟开源能力优先适配而非自研；文件上传、对象存储、恶意扫描、文档解析、预览、向量检索、Ontology/RDF 引擎均必须先评估成熟开源项目。自研重点限于科研语义、治理、provenance、权限、事件和人与 Agent 的协作边界。

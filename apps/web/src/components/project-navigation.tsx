@@ -6,7 +6,7 @@ const ITEMS = [
   { label: "证据与结果", segment: "/evidence" },
   { label: "科学决策", segment: "/decisions" },
   { label: "智能工作", segment: "/agent-work" },
-  { label: "项目资产", segment: null },
+  { label: "文件与资料", segment: "/files" },
 ] as const;
 
 export function ProjectNavigation({
@@ -18,21 +18,15 @@ export function ProjectNavigation({
 }) {
   return (
     <nav className="project-nav" aria-label="项目导航">
-      {ITEMS.map((item) =>
-        item.segment !== null ? (
-          <Link
-            className={item.label === active ? "active" : undefined}
-            href={`/projects/${projectId}${item.segment}`}
-            key={item.label}
-          >
-            {item.label}
-          </Link>
-        ) : (
-          <span aria-disabled="true" key={item.label}>
-            {item.label}
-          </span>
-        ),
-      )}
+      {ITEMS.map((item) => (
+        <Link
+          className={item.label === active ? "active" : undefined}
+          href={`/projects/${projectId}${item.segment}`}
+          key={item.label}
+        >
+          {item.label}
+        </Link>
+      ))}
     </nav>
   );
 }

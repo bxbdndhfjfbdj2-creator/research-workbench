@@ -4,6 +4,15 @@ import {
   markOutboxDelivered,
   markOutboxFailed,
 } from "../../packages/queue/src/outbox-dispatcher";
+import { FakeObjectStorage } from "../../packages/storage/src/fake";
+import {
+  FakeMalwareScanner,
+  FakeMetadataExtractor,
+  FakeRichDocumentParser,
+} from "../../packages/file-processing/src/fakes";
+import { createFileOutboxHandler } from "../../apps/worker/src/file-worker";
+import { composeOutboxHandlers } from "../../apps/worker/src/file-runtime";
+import { runOutboxPass } from "../../apps/worker/src/outbox-worker";
 import { initializeFoundationDatabase } from "../../packages/db/src/client";
 import {
   startTestDatabase,
@@ -64,6 +73,148 @@ describe("outbox retry after worker crash", () => {
 
     expect([...left, ...right].filter((row) => row.id === "race-outbox")).toHaveLength(1);
   });
+
+  it("retries a transient file scan failure and finalizes the upload exactly once", async () => {
+    await testDb.client.sql.unsafe(
+      "insert into teams (id, name) values ('retry-file-team', 'Retry File Team') on conflict do nothing",
+    );
+    await testDb.client.sql.unsafe(
+      `insert into members
+        (id, team_id, email, display_name, organization_role, actor_type)
+       values ('retry-file-lead', 'retry-file-team', 'lead@retry-file.test',
+               'Retry File Lead', 'lead', 'human')
+       on conflict do nothing`,
+    );
+    await testDb.client.sql.unsafe(
+      "insert into research_portfolios (id, team_id, name) values ('retry-file-portfolio', 'retry-file-team', 'Retry Portfolio') on conflict do nothing",
+    );
+    await testDb.client.sql.unsafe(
+      `insert into research_projects (id, portfolio_id, title, lead_member_id)
+       values ('retry-file-project', 'retry-file-portfolio', 'Retry File Project', 'retry-file-lead')
+       on conflict do nothing`,
+    );
+
+    const storage = new FakeObjectStorage();
+    const bytes = Buffer.from("outbox-file-retry-content");
+    await storage.putObject(
+      { bucket: "retry-quarantine", key: "uploads/retry-file-intent" },
+      bytes,
+      "application/octet-stream",
+    );
+    await testDb.client.sql.unsafe(
+      `insert into file_upload_intents
+        (id, project_id, proposed_title, file_kind, access_class, original_filename,
+         expected_byte_size, declared_media_type, state, tus_upload_id,
+         quarantine_bucket, quarantine_key, created_by, expires_at)
+       values ('retry-file-intent', 'retry-file-project', 'Retry paper', 'literature',
+               'project', 'retry.pdf', $1, 'application/pdf', 'uploaded_quarantine',
+               'tus-retry-file', 'retry-quarantine', 'uploads/retry-file-intent',
+               'retry-file-lead', now() + interval '1 hour')`,
+      [bytes.byteLength],
+    );
+    await testDb.client.sql.unsafe(
+      `insert into outbox_events (id, event_type, payload)
+       values (
+         'retry-file-outbox',
+         'file.upload.completed',
+         '{"uploadIntentId":"retry-file-intent","tusUploadId":"tus-retry-file"}'::jsonb
+       )`,
+    );
+
+    const baseDeps = {
+      storage,
+      metadataExtractor: new FakeMetadataExtractor({
+        mediaTypeDetected: "application/pdf",
+        metadataText: '{"Content-Type":"application/pdf"}',
+        extractedText: "retry fallback text",
+        processorVersion: "tika-retry-test",
+      }),
+      richParser: new FakeRichDocumentParser({
+        supported: true,
+        processorVersion: "docling-retry-test",
+        artifacts: [{ kind: "markdown" as const, text: "# Retry" }],
+      }),
+      quarantineBucket: "retry-quarantine",
+      readyBucket: "retry-ready",
+      readyPrefix: "ready/",
+      derivedPrefix: "derived/",
+      maxExtractedSearchBytes: 4096,
+      metrics: {
+        increment(_name: string) {},
+        observe(_name: string, _value: number) {},
+      },
+    };
+
+    const failingDispatch = composeOutboxHandlers(
+      createFileOutboxHandler(testDb.client.sql, {
+        ...baseDeps,
+        scanner: new FakeMalwareScanner({
+          errorCode: "ECONNREFUSED private-clamav-secret-detail",
+        }),
+      }),
+    );
+    expect(await runOutboxPass(testDb.client.sql, failingDispatch, 1)).toBe(1);
+
+    const failedRows = await testDb.client.sql.unsafe(
+      `select status, last_error
+       from outbox_events
+       where id = 'retry-file-outbox'`,
+    );
+    expect(failedRows[0]).toMatchObject({
+      status: "pending",
+      last_error: "DispatchError",
+    });
+    expect(JSON.stringify(failedRows[0])).not.toContain("private-clamav-secret-detail");
+
+    const failedIntent = await testDb.client.sql.unsafe(
+      "select state from file_upload_intents where id = 'retry-file-intent'",
+    );
+    expect(failedIntent[0]?.state).toBe("processing_failed");
+
+    await testDb.client.sql.unsafe(
+      "update outbox_events set available_at = now() where id = 'retry-file-outbox'",
+    );
+
+    const cleanDispatch = composeOutboxHandlers(
+      createFileOutboxHandler(testDb.client.sql, {
+        ...baseDeps,
+        scanner: new FakeMalwareScanner({
+          verdict: "clean",
+          scannerVersion: "clamav-retry-test",
+          signatureDatabaseVersion: "db-retry-test",
+        }),
+      }),
+    );
+    expect(await runOutboxPass(testDb.client.sql, cleanDispatch, 1)).toBe(1);
+
+    const deliveredRows = await testDb.client.sql.unsafe(
+      "select status, last_error, attempts from outbox_events where id = 'retry-file-outbox'",
+    );
+    expect(deliveredRows[0]).toMatchObject({
+      status: "delivered",
+      last_error: null,
+      attempts: 2,
+    });
+
+    const versions = await testDb.client.sql.unsafe(
+      `select count(*)::int as count
+       from file_versions fv
+       join research_files rf on rf.id = fv.research_file_id
+       where rf.project_id = 'retry-file-project'`,
+    );
+    expect(versions[0]?.count).toBe(1);
+
+    const followupEvents = await testDb.client.sql.unsafe(
+      `select event_type
+       from outbox_events
+       where id <> 'retry-file-outbox'
+         and event_type in ('research.file.created', 'file.version.created')`,
+    );
+    expect(followupEvents.map((row) => row.event_type)).toEqual(
+      expect.arrayContaining(["research.file.created", "file.version.created"]),
+    );
+  });
+
   it("does not persist arbitrary secret-bearing dispatch error text", async () => {
     await testDb.client.sql.unsafe(
       "insert into outbox_events (id, event_type, payload) values ('safe-error-outbox', 'test.event', '{}'::jsonb)",

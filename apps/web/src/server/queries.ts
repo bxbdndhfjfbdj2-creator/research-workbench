@@ -5,6 +5,12 @@ import { redirect } from "next/navigation";
 import { authorizeProjectAccess } from "@research-workbench/application/src/auth/authorize";
 import { createDbClient } from "@research-workbench/db/src/client";
 import { RESEARCH_DIMENSIONS } from "@research-workbench/domain/src/research-dimensions";
+import type {
+  FileAccessClass,
+  FileKind,
+  FileLinkRelation,
+  FileLinkSubjectType,
+} from "@research-workbench/domain/src/research-file";
 import { getWorkbenchAuth } from "../auth";
 
 export type CurrentMember = {
@@ -805,4 +811,420 @@ export async function listAgentWorkCenter(member: CurrentMember) {
       projectTitle: row.project.title,
       agentTasks: row.work!.agentTasks,
     }));
+}
+
+
+export type ProjectFileListItem = {
+  id: string;
+  title: string;
+  fileKind: FileKind;
+  currentVersionNumber: number | null;
+  accessClass: FileAccessClass;
+  lifecycleState: string;
+  scanStatus: string | null;
+  parseStatus: string | null;
+  updatedAt: Date;
+  linkCount: number;
+};
+
+export type FileVersionViewModel = {
+  id: string;
+  versionNumber: number;
+  originalFilename: string;
+  mediaType: string | null;
+  byteSize: number | null;
+  sha256: string | null;
+  sourceKind: "upload" | "external_reference";
+  changeSummary: string | null;
+  scanStatus: string;
+  parseStatus: string;
+  extractedText: string | null;
+  createdBy: string;
+  createdAt: Date;
+  processing: Array<{
+    id: string;
+    processorKind: string;
+    processorName: string;
+    processorVersion: string;
+    status: string;
+    outputRefs: string[];
+    errorCode: string | null;
+    startedAt: Date | null;
+    finishedAt: Date | null;
+  }>;
+};
+
+export type FileLinkViewModel = {
+  id: string;
+  fileVersionId: string;
+  subjectType: FileLinkSubjectType;
+  subjectId: string;
+  relation: FileLinkRelation;
+  createdByType: string;
+  createdById: string;
+  createdAt: Date;
+};
+
+export type RetiredFileLinkViewModel = FileLinkViewModel & {
+  retirementId: string;
+  retirementReason: string;
+  retiredAt: Date;
+};
+
+export type ExternalReferenceViewModel = {
+  id: string;
+  manifestHash: string;
+  versionLabel: string;
+  uriOrLocator: string | null;
+  accessPolicyRef: string | null;
+  licenseOrAgreementRef: string | null;
+  createdBy: string;
+  createdAt: Date;
+};
+
+export type ResearchFileDetailViewModel = {
+  id: string;
+  projectId: string;
+  title: string;
+  fileKind: FileKind;
+  description: string | null;
+  accessClass: FileAccessClass;
+  lifecycleState: string;
+  currentVersionId: string | null;
+  createdBy: string;
+  createdAt: Date;
+  versions: FileVersionViewModel[];
+  activeLinks: FileLinkViewModel[];
+  retiredLinks: RetiredFileLinkViewModel[];
+  externalReference: ExternalReferenceViewModel | null;
+};
+
+type ProjectFileFilters = {
+  q?: string;
+  fileKind?: FileKind;
+  processingState?: string;
+  subjectType?: FileLinkSubjectType;
+};
+
+function normalizeFileSearchQuery(value: string | undefined): string | null {
+  const trimmed = value?.trim().slice(0, 200) ?? "";
+  if (!trimmed) return null;
+  if (!/[\p{L}\p{N}]/u.test(trimmed)) return null;
+  return trimmed;
+}
+
+export async function getProjectFiles(
+  member: CurrentMember,
+  projectId: string,
+  filters: ProjectFileFilters = {},
+): Promise<ProjectFileListItem[] | null> {
+  const db = webDb();
+  try {
+    await authorizeProjectAccess(db.sql, member.id, projectId, "read");
+  } catch {
+    return null;
+  }
+
+  const where: string[] = ["rf.project_id = $1"];
+  const params: string[] = [projectId];
+
+  if (filters.fileKind) {
+    params.push(filters.fileKind);
+    where.push(`rf.file_kind = $${params.length}`);
+  }
+
+  const processingState = filters.processingState?.trim();
+  if (processingState) {
+    params.push(processingState);
+    where.push(
+      `(fv.parse_status = $${params.length} or fv.scan_status = $${params.length} or rf.lifecycle_state = $${params.length})`,
+    );
+  }
+
+  if (filters.subjectType) {
+    params.push(filters.subjectType);
+    where.push(
+      `exists (
+         select 1
+         from file_versions linked_version
+         join file_links linked on linked.file_version_id = linked_version.id
+         left join file_link_retirements retired on retired.file_link_id = linked.id
+         where linked_version.research_file_id = rf.id
+           and linked.subject_type = $${params.length}
+           and retired.id is null
+       )`,
+    );
+  }
+
+  const searchQuery = normalizeFileSearchQuery(filters.q);
+  if (searchQuery) {
+    params.push(searchQuery);
+    where.push(
+      `fs.search_vector @@ websearch_to_tsquery('simple', $${params.length})`,
+    );
+  }
+
+  const rows = await db.sql.unsafe(
+    `select rf.id, rf.title, rf.file_kind, rf.access_class, rf.lifecycle_state,
+            fv.version_number, fv.scan_status, fv.parse_status,
+            coalesce(fv.created_at, rf.created_at) as updated_at,
+            coalesce(active_links.link_count, 0)::int as link_count
+     from research_files rf
+     left join file_versions fv on fv.id = rf.current_version_id
+     left join file_search_documents fs on fs.file_version_id = fv.id
+     left join lateral (
+       select count(*)::int as link_count
+       from file_versions all_versions
+       join file_links fl on fl.file_version_id = all_versions.id
+       left join file_link_retirements retirement on retirement.file_link_id = fl.id
+       where all_versions.research_file_id = rf.id
+         and retirement.id is null
+     ) active_links on true
+     where ${where.join(" and ")}
+     order by rf.created_at asc, rf.id asc`,
+    params,
+  );
+
+  return rows.map((row) => ({
+    id: String(row.id),
+    title: String(row.title),
+    fileKind: row.file_kind as FileKind,
+    currentVersionNumber:
+      row.version_number === null || row.version_number === undefined
+        ? null
+        : Number(row.version_number),
+    accessClass: row.access_class as FileAccessClass,
+    lifecycleState: String(row.lifecycle_state),
+    scanStatus: row.scan_status ? String(row.scan_status) : null,
+    parseStatus: row.parse_status ? String(row.parse_status) : null,
+    updatedAt: new Date(row.updated_at as string | Date),
+    linkCount: Number(row.link_count ?? 0),
+  }));
+}
+
+export async function getResearchFileDetail(
+  member: CurrentMember,
+  researchFileId: string,
+): Promise<ResearchFileDetailViewModel | null> {
+  const db = webDb();
+  const fileRows = await db.sql.unsafe(
+    `select rf.id, rf.project_id, rf.title, rf.file_kind, rf.description,
+            rf.current_version_id, rf.access_class, rf.lifecycle_state,
+            rf.created_by, rf.created_at, p.lead_member_id
+     from research_files rf
+     join research_projects p on p.id = rf.project_id
+     where rf.id = $1
+     limit 1`,
+    [researchFileId],
+  );
+  const file = fileRows[0];
+  if (!file) return null;
+
+  const projectId = String(file.project_id);
+  try {
+    await authorizeProjectAccess(db.sql, member.id, projectId, "read");
+  } catch {
+    return null;
+  }
+
+  const versionRows = await db.sql.unsafe(
+    `select fv.id, fv.version_number, fv.original_filename, fv.media_type,
+            fv.byte_size, fv.sha256, fv.source_kind, fv.change_summary,
+            fv.scan_status, fv.parse_status, fv.created_by, fv.created_at,
+            fs.extracted_text,
+            er.id as external_reference_id, er.uri_or_locator, er.manifest_hash,
+            er.access_policy_ref, er.license_or_agreement_ref, er.version_label,
+            er.created_by as external_created_by, er.created_at as external_created_at
+     from file_versions fv
+     left join file_search_documents fs on fs.file_version_id = fv.id
+     left join external_data_references er on er.id = fv.external_reference_id
+     where fv.research_file_id = $1
+     order by fv.version_number desc`,
+    [researchFileId],
+  );
+
+  const processingRows = await db.sql.unsafe(
+    `select fpr.id, fpr.file_version_id, fpr.processor_kind, fpr.processor_name,
+            fpr.processor_version, fpr.status, fpr.output_refs, fpr.error_code,
+            fpr.started_at, fpr.finished_at
+     from file_processing_records fpr
+     join file_versions fv on fv.id = fpr.file_version_id
+     where fv.research_file_id = $1
+     order by fpr.created_at asc, fpr.id asc`,
+    [researchFileId],
+  );
+
+  const processingByVersion = new Map<string, FileVersionViewModel["processing"]>();
+  for (const row of processingRows) {
+    const versionId = String(row.file_version_id);
+    const list = processingByVersion.get(versionId) ?? [];
+    list.push({
+      id: String(row.id),
+      processorKind: String(row.processor_kind),
+      processorName: String(row.processor_name),
+      processorVersion: String(row.processor_version),
+      status: String(row.status),
+      outputRefs: Array.isArray(row.output_refs) ? (row.output_refs as string[]) : [],
+      errorCode: row.error_code ? String(row.error_code) : null,
+      startedAt: row.started_at ? new Date(row.started_at as string | Date) : null,
+      finishedAt: row.finished_at ? new Date(row.finished_at as string | Date) : null,
+    });
+    processingByVersion.set(versionId, list);
+  }
+
+  const linkRows = await db.sql.unsafe(
+    `select fl.id, fl.file_version_id, fl.subject_type, fl.subject_id, fl.relation,
+            fl.created_by_type, fl.created_by_id, fl.created_at,
+            retirement.id as retirement_id, retirement.reason as retirement_reason,
+            retirement.created_at as retired_at
+     from file_links fl
+     join file_versions fv on fv.id = fl.file_version_id
+     left join file_link_retirements retirement on retirement.file_link_id = fl.id
+     where fv.research_file_id = $1
+     order by fl.created_at asc, fl.id asc`,
+    [researchFileId],
+  );
+
+  const activeLinks: FileLinkViewModel[] = [];
+  const retiredLinks: RetiredFileLinkViewModel[] = [];
+  for (const row of linkRows) {
+    const link: FileLinkViewModel = {
+      id: String(row.id),
+      fileVersionId: String(row.file_version_id),
+      subjectType: row.subject_type as FileLinkSubjectType,
+      subjectId: String(row.subject_id),
+      relation: row.relation as FileLinkRelation,
+      createdByType: String(row.created_by_type),
+      createdById: String(row.created_by_id),
+      createdAt: new Date(row.created_at as string | Date),
+    };
+    if (row.retirement_id) {
+      retiredLinks.push({
+        ...link,
+        retirementId: String(row.retirement_id),
+        retirementReason: String(row.retirement_reason),
+        retiredAt: new Date(row.retired_at as string | Date),
+      });
+    } else {
+      activeLinks.push(link);
+    }
+  }
+
+  const versions: FileVersionViewModel[] = versionRows.map((row) => ({
+    id: String(row.id),
+    versionNumber: Number(row.version_number),
+    originalFilename: String(row.original_filename),
+    mediaType: row.media_type ? String(row.media_type) : null,
+    byteSize: row.byte_size === null || row.byte_size === undefined ? null : Number(row.byte_size),
+    sha256: row.sha256 ? String(row.sha256) : null,
+    sourceKind: row.source_kind as "upload" | "external_reference",
+    changeSummary: row.change_summary ? String(row.change_summary) : null,
+    scanStatus: String(row.scan_status),
+    parseStatus: String(row.parse_status),
+    extractedText: row.extracted_text ? String(row.extracted_text) : null,
+    createdBy: String(row.created_by),
+    createdAt: new Date(row.created_at as string | Date),
+    processing: processingByVersion.get(String(row.id)) ?? [],
+  }));
+
+  const currentReferenceRow = versionRows.find(
+    (row) =>
+      String(row.id) === String(file.current_version_id ?? "") &&
+      row.external_reference_id,
+  );
+  let externalReference: ExternalReferenceViewModel | null = null;
+  if (currentReferenceRow?.external_reference_id) {
+    const maySeeRestrictedMetadata =
+      file.access_class !== "restricted" ||
+      member.organizationRole === "lead" ||
+      String(file.lead_member_id) === member.id ||
+      String(currentReferenceRow.external_created_by) === member.id;
+
+    externalReference = {
+      id: String(currentReferenceRow.external_reference_id),
+      manifestHash: String(currentReferenceRow.manifest_hash),
+      versionLabel: String(currentReferenceRow.version_label),
+      uriOrLocator: maySeeRestrictedMetadata
+        ? String(currentReferenceRow.uri_or_locator)
+        : null,
+      accessPolicyRef: maySeeRestrictedMetadata
+        ? String(currentReferenceRow.access_policy_ref)
+        : null,
+      licenseOrAgreementRef:
+        maySeeRestrictedMetadata && currentReferenceRow.license_or_agreement_ref
+          ? String(currentReferenceRow.license_or_agreement_ref)
+          : null,
+      createdBy: String(currentReferenceRow.external_created_by),
+      createdAt: new Date(currentReferenceRow.external_created_at as string | Date),
+    };
+  }
+
+  return {
+    id: String(file.id),
+    projectId,
+    title: String(file.title),
+    fileKind: file.file_kind as FileKind,
+    description: file.description ? String(file.description) : null,
+    accessClass: file.access_class as FileAccessClass,
+    lifecycleState: String(file.lifecycle_state),
+    currentVersionId: file.current_version_id ? String(file.current_version_id) : null,
+    createdBy: String(file.created_by),
+    createdAt: new Date(file.created_at as string | Date),
+    versions,
+    activeLinks,
+    retiredLinks,
+    externalReference,
+  };
+}
+
+
+export type ProjectFileUploadStatus = {
+  id: string;
+  researchFileId: string | null;
+  title: string;
+  originalFilename: string;
+  fileKind: FileKind;
+  accessClass: FileAccessClass;
+  state: string;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export async function getProjectFileUploadStatuses(
+  member: CurrentMember,
+  projectId: string,
+): Promise<ProjectFileUploadStatus[] | null> {
+  const db = webDb();
+  try {
+    await authorizeProjectAccess(db.sql, member.id, projectId, "read");
+  } catch {
+    return null;
+  }
+
+  const rows = await db.sql.unsafe(
+    `select fui.id, fui.research_file_id,
+            coalesce(rf.title, fui.proposed_title, fui.original_filename) as display_title,
+            fui.original_filename, fui.file_kind, fui.access_class, fui.state,
+            fui.created_by, fui.created_at, fui.updated_at
+     from file_upload_intents fui
+     left join research_files rf on rf.id = fui.research_file_id
+     where fui.project_id = $1
+     order by fui.created_at desc, fui.id desc
+     limit 20`,
+    [projectId],
+  );
+
+  return rows.map((row) => ({
+    id: String(row.id),
+    researchFileId: row.research_file_id ? String(row.research_file_id) : null,
+    title: String(row.display_title),
+    originalFilename: String(row.original_filename),
+    fileKind: row.file_kind as FileKind,
+    accessClass: row.access_class as FileAccessClass,
+    state: String(row.state),
+    createdBy: String(row.created_by),
+    createdAt: new Date(row.created_at as string | Date),
+    updatedAt: new Date(row.updated_at as string | Date),
+  }));
 }

@@ -5,6 +5,8 @@
   "type": "module",
   "dependencies": {
     "@research-workbench/domain": "workspace:*",
-    "@research-workbench/db": "workspace:*"
+    "@research-workbench/db": "workspace:*",
+    "@research-workbench/storage": "workspace:*",
+    "@research-workbench/file-processing": "workspace:*"
   }
 }
