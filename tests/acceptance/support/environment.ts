@@ -227,7 +227,15 @@ async function seedBusinessData(
   }
 
   const primaryResearcher = researchers[0];
-  if (!primaryResearcher?.projectId) throw new Error("Primary acceptance project missing");
+  const restrictedReferenceViewer = researchers[1];
+  if (!primaryResearcher?.projectId || !restrictedReferenceViewer) {
+    throw new Error("Primary acceptance project or restricted reference viewer missing");
+  }
+  await db.sql.unsafe(
+    `insert into project_memberships (id, project_id, member_id, role)
+     values ($1, $2, $3, 'collaborator')`,
+    [randomUUID(), primaryResearcher.projectId, restrictedReferenceViewer.id],
+  );
 
   const graphActor = { type: "human" as const, id: primaryResearcher.id };
   const mechanismA = await createResearchNode(
