@@ -50,6 +50,9 @@ importers:
       '@research-workbench/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@research-workbench/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       '@research-workbench/ui':
         specifier: workspace:*
         version: link:../../packages/ui
