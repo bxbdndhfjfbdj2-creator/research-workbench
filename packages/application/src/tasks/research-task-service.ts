@@ -751,6 +751,22 @@ export async function completeUnreviewedTask(
       throw new Error("Completion must accept the latest submission for this task");
     }
 
+    const priorAcceptances = await tx.unsafe(
+      `select 1
+       from research_events
+       where project_id = $1
+         and event_type = 'RESEARCH_TASK_COMPLETED'
+         and payload->>'researchTaskId' = $2
+         and payload->>'submissionId' = $3
+       limit 1`,
+      [task.project_id, task.id, latest.id],
+    );
+    if (priorAcceptances.length > 0) {
+      throw new Error(
+        "Reopened research task requires a new formal submission before completion",
+      );
+    }
+
     const rows = (await tx.unsafe(
       `update research_tasks
        set status = 'completed', updated_at = now()
