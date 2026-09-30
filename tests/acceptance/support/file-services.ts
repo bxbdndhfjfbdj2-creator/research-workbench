@@ -231,7 +231,7 @@ export async function startFileAcceptanceServices(): Promise<StartedFileAcceptan
     seaweed = await new GenericContainer("chrislusf/seaweedfs:4.47")
       .withNetwork(network)
       .withNetworkAliases("seaweedfs")
-      .withCommand(["server", "-s3", "-s3.port=8333"])
+      .withCommand(["server", "-s3", "-s3.port=8333", "-s3.ip.bind=0.0.0.0"])
       .withExposedPorts(8333)
       .withLogConsumer((stream) => {
         stream.on("data", (chunk) => {
