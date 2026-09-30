@@ -65,7 +65,11 @@ export function normalizeTusdHookRequest(
   const offset = asInteger(upload.Offset, "upload offset");
 
   if (type === "pre-create") {
-    if (upload.ID !== null && upload.ID !== undefined) {
+    if (
+      upload.ID !== null &&
+      upload.ID !== undefined &&
+      upload.ID !== ""
+    ) {
       throw new Error("Invalid pre-create upload id");
     }
     if (upload.Storage !== null && upload.Storage !== undefined) {
