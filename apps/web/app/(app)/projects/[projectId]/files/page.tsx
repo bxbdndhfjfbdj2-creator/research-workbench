@@ -4,8 +4,10 @@ import { ProjectNavigation } from "../../../../../src/components/project-navigat
 import { ExternalReferenceForm } from "../../../../../src/components/files/external-reference-form";
 import { FileList } from "../../../../../src/components/files/file-list";
 import { FileUploadForm } from "../../../../../src/components/files/file-upload-form";
+import { FileUploadStatusList } from "../../../../../src/components/files/file-upload-status-list";
 import {
   getProjectFiles,
+  getProjectFileUploadStatuses,
   getProjectOverview,
   requireCurrentMember,
 } from "../../../../../src/server/queries";
@@ -20,11 +22,12 @@ export default async function ProjectFilesPage({
   const member = await requireCurrentMember();
   const { projectId } = await params;
   const { q } = await searchParams;
-  const [project, files] = await Promise.all([
+  const [project, files, uploads] = await Promise.all([
     getProjectOverview(member, projectId),
     getProjectFiles(member, projectId, { q }),
+    getProjectFileUploadStatuses(member, projectId),
   ]);
-  if (!project || !files) notFound();
+  if (!project || !files || !uploads) notFound();
 
   return (
     <section>
@@ -44,6 +47,7 @@ export default async function ProjectFilesPage({
       </form>
 
       <FileList projectId={projectId} files={files} />
+      <FileUploadStatusList uploads={uploads} />
       <FileUploadForm projectId={projectId} />
       <ExternalReferenceForm projectId={projectId} />
     </section>
