@@ -224,6 +224,7 @@ async function latestFacts(sql: DatabaseSql, projectId: string) {
 export async function startFileAcceptanceServices(): Promise<StartedFileAcceptanceServices> {
   const network: StartedNetwork = await new Network().start();
   let seaweedLogTail = "";
+  let tusdLogTail = "";
   let seaweed: StartedTestContainer | undefined;
   let tusd: StartedTestContainer | undefined;
 
@@ -300,6 +301,13 @@ export async function startFileAcceptanceServices(): Promise<StartedFileAcceptan
         "-cors-expose-headers=Upload-Offset,Upload-Length,Location,Tus-Resumable,Tus-Version,Tus-Extension,Tus-Max-Size,Upload-Metadata",
       ])
       .withExposedPorts(1080)
+      .withLogConsumer((stream) => {
+        stream.on("data", (chunk) => {
+          const text = String(chunk);
+          tusdLogTail = `${tusdLogTail}${text}`.slice(-12_000);
+          process.stdout.write(`[tusd] ${text}`);
+        });
+      })
       .withStartupTimeout(120_000)
       .start();
 
