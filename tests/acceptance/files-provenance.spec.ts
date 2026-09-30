@@ -299,7 +299,11 @@ test("registers restricted external data without tus bytes and redacts locator f
   await page.goto(detailUrl);
 
   await expect(
-    page.getByRole("heading", { name: "Restricted external acceptance", exact: true }),
+    page.getByRole("heading", {
+      name: "Restricted external acceptance",
+      exact: true,
+      level: 2,
+    }),
   ).toBeVisible();
   await expect(page.getByText("manifest-acceptance-42", { exact: true })).toBeVisible();
   await expect(page.getByText("release-42", { exact: true })).toBeVisible();
