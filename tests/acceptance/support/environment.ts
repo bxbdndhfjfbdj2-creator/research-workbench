@@ -755,9 +755,13 @@ export async function startAcceptanceEnvironment(
 
       const researchFileId = randomUUID();
       const externalReferenceId = randomUUID();
+      const externalVersionId = randomUUID();
       const fileVersionId = randomUUID();
+      const blobId = randomUUID();
       const locator = "secure-datalake://acceptance/cockpit-sensitive";
       const accessPolicyRef = "policy:cockpit-sensitive";
+      const uploadSha =
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 
       await db.sql.unsafe(
         `insert into external_data_references
@@ -774,6 +778,13 @@ export async function startAcceptanceEnvironment(
         ],
       );
       await db.sql.unsafe(
+        `insert into file_blobs
+          (id, sha256, storage_backend, storage_key, byte_size,
+           media_type_detected, quarantine_state)
+         values ($1, $2, 'fixture', $3, 128, 'application/pdf', 'clean')`,
+        [blobId, uploadSha, `cockpit/${blobId}`],
+      );
+      await db.sql.unsafe(
         `insert into research_files
           (id, project_id, title, file_kind, access_class, lifecycle_state, created_by)
          values ($1, $2, 'Cockpit Restricted Parse Failure', 'dataset',
@@ -786,8 +797,18 @@ export async function startAcceptanceEnvironment(
            original_filename, source_kind, source_metadata, scan_status,
            parse_status, created_by)
          values ($1, $2, 1, $3, 'cockpit-restricted-v1', 'external_reference',
-                 '{}'::jsonb, 'not_applicable', 'failed', $4)`,
-        [fileVersionId, researchFileId, externalReferenceId, owner.id],
+                 '{}'::jsonb, 'not_applicable', 'not_applicable', $4)`,
+        [externalVersionId, researchFileId, externalReferenceId, owner.id],
+      );
+      await db.sql.unsafe(
+        `insert into file_versions
+          (id, research_file_id, version_number, blob_id, original_filename,
+           media_type, byte_size, sha256, source_kind, source_metadata,
+           scan_status, parse_status, created_by)
+         values ($1, $2, 2, $3, 'cockpit-upload-v2.pdf',
+                 'application/pdf', 128, $4, 'upload', '{}'::jsonb,
+                 'passed', 'failed', $5)`,
+        [fileVersionId, researchFileId, blobId, uploadSha, owner.id],
       );
       await db.sql.unsafe(
         "update research_files set current_version_id = $2 where id = $1",
@@ -799,11 +820,7 @@ export async function startAcceptanceEnvironment(
            status, input_hash, output_refs, error_code, finished_at)
          values ($1, $2, 'parser', 'acceptance-parser', '1', 'failed',
                  $3, '[]'::jsonb, 'parse_failed', now())`,
-        [
-          randomUUID(),
-          fileVersionId,
-          "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-        ],
+        [randomUUID(), fileVersionId, uploadSha],
       );
 
       const dimensionRows = await db.sql.unsafe(
