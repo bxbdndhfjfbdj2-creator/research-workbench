@@ -179,39 +179,64 @@ describe("cockpit current-state queries", () => {
         (id, project_id, uri_or_locator, manifest_hash, access_policy_ref,
          version_label, created_by)
        values
-        ('external-current', $1, $2, 'manifest-current', $3, 'v1', $4),
-        ('external-old', $1, 'https://restricted.example/old', 'manifest-old',
-         'policy-old', 'v1', $4)`,
+        ('external-sensitive', $1, $2, 'manifest-sensitive', $3, 'v1', $4)`,
       [PROJECT_A, LOCATOR_SENTINEL, POLICY_SENTINEL, VIEWER],
+    );
+    await testDb.client.sql.unsafe(
+      `insert into file_blobs
+        (id, sha256, storage_backend, storage_key, byte_size,
+         media_type_detected, quarantine_state)
+       values
+        ('blob-current', repeat('a', 64), 'fixture', 'cockpit/current', 10,
+         'application/pdf', 'clean'),
+        ('blob-old-v1', repeat('b', 64), 'fixture', 'cockpit/old-v1', 11,
+         'application/pdf', 'clean'),
+        ('blob-old-v2', repeat('c', 64), 'fixture', 'cockpit/old-v2', 12,
+         'application/pdf', 'clean')`,
     );
     await testDb.client.sql.unsafe(
       `insert into research_files
         (id, project_id, title, file_kind, access_class, lifecycle_state, created_by)
        values
         ('file-current-fail', $1, '受限当前失败文件', 'dataset', 'restricted', 'active', $2),
-        ('file-old-fail', $1, '旧失败已被新版本替代', 'dataset', 'project', 'active', $2)`,
+        ('file-old-fail', $1, '旧失败已被新版本替代', 'dataset', 'project', 'active', $2),
+        ('file-external-sensitive', $1, '受限外部引用', 'dataset', 'restricted', 'active', $2)`,
       [PROJECT_A, VIEWER],
+    );
+    await testDb.client.sql.unsafe(
+      `insert into file_versions
+        (id, research_file_id, version_number, blob_id, original_filename,
+         media_type, byte_size, sha256, source_kind, source_metadata,
+         scan_status, parse_status, created_by)
+       values
+        ('file-current-v1', 'file-current-fail', 1, 'blob-current', 'restricted-v1.pdf',
+         'application/pdf', 10, repeat('a', 64), 'upload', $1::jsonb,
+         'passed', 'failed', $2),
+        ('file-old-v1', 'file-old-fail', 1, 'blob-old-v1', 'old-v1.pdf',
+         'application/pdf', 11, repeat('b', 64), 'upload', '{}'::jsonb,
+         'passed', 'failed', $2),
+        ('file-old-v2', 'file-old-fail', 2, 'blob-old-v2', 'old-v2.pdf',
+         'application/pdf', 12, repeat('c', 64), 'upload', '{}'::jsonb,
+         'passed', 'parsed', $2)`,
+      [JSON.stringify({ note: SOURCE_SENTINEL }), VIEWER],
     );
     await testDb.client.sql.unsafe(
       `insert into file_versions
         (id, research_file_id, version_number, external_reference_id, original_filename,
          source_kind, source_metadata, scan_status, parse_status, created_by)
        values
-        ('file-current-v1', 'file-current-fail', 1, 'external-current', 'restricted-v1',
-         'external_reference', $1::jsonb, 'not_applicable', 'failed', $2),
-        ('file-old-v1', 'file-old-fail', 1, 'external-old', 'old-v1',
-         'external_reference', '{}'::jsonb, 'not_applicable', 'failed', $2),
-        ('file-old-v2', 'file-old-fail', 2, 'external-old', 'old-v2',
-         'external_reference', '{}'::jsonb, 'not_applicable', 'parsed', $2)`,
-      [JSON.stringify({ note: SOURCE_SENTINEL }), VIEWER],
+        ('file-external-v1', 'file-external-sensitive', 1, 'external-sensitive', 'external-v1',
+         'external_reference', '{}'::jsonb, 'not_applicable', 'not_applicable', $1)`,
+      [VIEWER],
     );
     await testDb.client.sql.unsafe(
       `update research_files
        set current_version_id = case
          when id = 'file-current-fail' then 'file-current-v1'
          when id = 'file-old-fail' then 'file-old-v2'
+         when id = 'file-external-sensitive' then 'file-external-v1'
        end
-       where id in ('file-current-fail', 'file-old-fail')`,
+       where id in ('file-current-fail', 'file-old-fail', 'file-external-sensitive')`,
     );
     await testDb.client.sql.unsafe(
       `insert into file_processing_records
