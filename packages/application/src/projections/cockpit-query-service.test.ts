@@ -151,12 +151,25 @@ describe("cockpit current-state queries", () => {
       [PROJECT_A, JSON.stringify({ objective: AGENT_SENTINEL }), VIEWER],
     );
     await testDb.client.sql.unsafe(
-      `insert into agent_runs
-        (id, agent_task_id, project_id, attempt_number, state, execution_policy,
-         created_by_type, created_by_id)
+      `insert into agent_context_snapshots
+        (id, project_id, asset_version_refs, harness_version, harness_profile,
+         runtime_profile, model_route, sandbox_policy, tool_allowlist,
+         subagent_allowlist, created_by_type, created_by_id)
        values
-        ('agent-run-1', 'agent-task-current', $1, 1, '失败', '{}'::jsonb, 'human', $2),
-        ('agent-run-2', 'agent-task-current', $1, 2, '完成', '{}'::jsonb, 'human', $2)`,
+        ('agent-context-fixture', $1, '[]'::jsonb, 'fixture-harness', 'fixture-profile',
+         'fixture-runtime', 'fixture-model', 'read-only', '[]'::jsonb,
+         '[]'::jsonb, 'human', $2)`,
+      [PROJECT_A, VIEWER],
+    );
+    await testDb.client.sql.unsafe(
+      `insert into agent_runs
+        (id, agent_task_id, project_id, attempt_number, context_snapshot_id,
+         state, execution_policy, created_by_type, created_by_id)
+       values
+        ('agent-run-1', 'agent-task-current', $1, 1, 'agent-context-fixture',
+         '失败', '{}'::jsonb, 'human', $2),
+        ('agent-run-2', 'agent-task-current', $1, 2, 'agent-context-fixture',
+         '完成', '{}'::jsonb, 'human', $2)`,
       [PROJECT_A, VIEWER],
     );
 
@@ -238,7 +251,12 @@ describe("cockpit current-state queries", () => {
     expect(project.project.title).toBe("研究 A");
     expect(project.tasks.some((item) => item.id === "task-blocked")).toBe(true);
     expect(project.tasks.find((item) => item.id === "task-review-me")?.currentReview)
-      .toMatchObject({ id: "review-me", reviewerMemberId: VIEWER, status: "pending" });
+      .toMatchObject({
+        id: "review-me",
+        reviewerMemberId: VIEWER,
+        status: "pending",
+        submissionNumber: 1,
+      });
     expect(project.tasks.find((item) => item.id === "task-review-other")?.currentReview)
       .toMatchObject({ id: "review-other", reviewerMemberId: OTHER_REVIEWER });
     expect(project.agentRuns.map((item) => item.attemptNumber)).toEqual([1, 2]);
