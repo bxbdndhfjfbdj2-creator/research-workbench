@@ -196,6 +196,17 @@ async function waitForServer(url: string, child: ChildProcess): Promise<void> {
   throw new Error(`Timed out waiting for Next.js: ${String(lastError)}`);
 }
 
+async function closeBootstrapAuthPool(
+  authInstance: ReturnType<typeof createWorkbenchAuth>,
+): Promise<void> {
+  const database = authInstance.options.database as {
+    end?: () => Promise<void>;
+  };
+  if (typeof database?.end === "function") {
+    await database.end();
+  }
+}
+
 async function seedBusinessData(
   db: DbClient,
   databaseUrl: string,
@@ -243,24 +254,28 @@ async function seedBusinessData(
 
   const businessUsers: AcceptanceUser[] = [];
 
-  for (const user of users) {
-    const authResult = await bootstrapAuth.api.signUpEmail({
-      body: {
+  try {
+    for (const user of users) {
+      const authResult = await bootstrapAuth.api.signUpEmail({
+        body: {
+          email: user.email,
+          password,
+          name: user.displayName,
+        },
+      });
+      const memberId = randomUUID();
+      await createInternalMember(db.sql, {
+        id: memberId,
+        teamId: "acceptance-team",
         email: user.email,
-        password,
-        name: user.displayName,
-      },
-    });
-    const memberId = randomUUID();
-    await createInternalMember(db.sql, {
-      id: memberId,
-      teamId: "acceptance-team",
-      email: user.email,
-      displayName: user.displayName,
-      organizationRole: user.role,
-      authUserId: authResult.user.id,
-    });
-    businessUsers.push({ id: memberId, email: user.email, password });
+        displayName: user.displayName,
+        organizationRole: user.role,
+        authUserId: authResult.user.id,
+      });
+      businessUsers.push({ id: memberId, email: user.email, password });
+    }
+  } finally {
+    await closeBootstrapAuthPool(bootstrapAuth);
   }
 
   const [lead, ...researchers] = businessUsers;
