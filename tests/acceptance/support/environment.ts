@@ -135,6 +135,45 @@ export type FileAcceptanceEnvironment = Omit<AcceptanceEnvironment, "files"> & {
   files: FileAcceptanceController;
 };
 
+function signalProcessTree(
+  child: ChildProcess,
+  signal: NodeJS.Signals,
+): void {
+  if (child.exitCode !== null) return;
+
+  if (process.platform !== "win32" && child.pid) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
+  }
+
+  child.kill(signal);
+}
+
+async function stopServerProcess(child: ChildProcess | undefined): Promise<void> {
+  if (!child || child.exitCode !== null) return;
+
+  const waitForExit = () =>
+    new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, 5_000);
+      child.once("exit", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+
+  signalProcessTree(child, "SIGTERM");
+  await waitForExit();
+
+  if (child.exitCode === null) {
+    signalProcessTree(child, "SIGKILL");
+    await waitForExit();
+  }
+}
+
 async function waitForServer(url: string, child: ChildProcess): Promise<void> {
   const deadline = Date.now() + 90_000;
   let lastError: unknown;
@@ -790,6 +829,7 @@ export async function startAcceptanceEnvironment(
           ...(options.fileServices?.webEnvironment ?? {}),
         },
         stdio: ["ignore", "pipe", "pipe"],
+        detached: process.platform !== "win32",
       },
     );
 
@@ -906,26 +946,14 @@ export async function startAcceptanceEnvironment(
           }
         : {}),
       async stop() {
-        if (child && child.exitCode === null) {
-          child.kill("SIGTERM");
-          await new Promise<void>((resolve) => {
-            const timer = setTimeout(() => {
-              if (child && child.exitCode === null) child.kill("SIGKILL");
-              resolve();
-            }, 5_000);
-            child?.once("exit", () => {
-              clearTimeout(timer);
-              resolve();
-            });
-          });
-        }
+        await stopServerProcess(child);
         await db.close();
         await container.stop();
         await options.fileServices?.stop();
       },
     };
   } catch (error) {
-    if (child && child.exitCode === null) child.kill("SIGKILL");
+    await stopServerProcess(child);
     await db.close();
     await container.stop();
     await options.fileServices?.stop();
