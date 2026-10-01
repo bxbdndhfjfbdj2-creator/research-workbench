@@ -406,7 +406,7 @@ Validate all projection-critical canonical enums against domain constants:
 - Decision status against `DECISION_STATUSES`;
 - Agent state against `AGENT_RUN_STATES`;
 - research dimension name/state against `RESEARCH_DIMENSIONS` and `RESEARCH_DIMENSION_STATES`;
-- current FileVersion parse status against the supported parse-status set;
+- current FileVersion parse status against the exact local set `["parsed", "failed", "not_applicable"]`;
 - file access class against `FILE_ACCESS_CLASSES`.
 
 Any unknown current value throws `CockpitProjectionInconsistencyError`. Historical unknown event types remain non-fatal and are simply excluded unless allowlisted.
