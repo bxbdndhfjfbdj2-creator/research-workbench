@@ -566,6 +566,8 @@ type CockpitAcceptanceController = {
   idleTaskId: string;
   pendingReviewTaskId: string;
   currentParseFailureFileId: string;
+  currentParseFailureLocator: string;
+  currentParseFailureAccessPolicyRef: string;
   ageTask(taskId: string, isoTime: string): Promise<void>;
   setRawTaskStatus(taskId: string, status: string): Promise<void>;
 };
@@ -603,7 +605,7 @@ Catch query/projection errors only here, log fixed safe diagnostic metadata, ret
 - waiting human → “等待人工输入”
 - file parse → “当前文件版本解析失败”
 
-`ProjectCockpitCard`: title/lead/dimensions/lane counts/max-3 previews/latest activity; no score/health/risk.
+`ProjectCockpitCard`: title/lead/dimensions/lane counts/max-3 previews/latest activity; no score/health/risk. Preserve `data-testid="project-card"` and the project-title link to `/projects/{projectId}` so existing Phase 1 selectors/behavior remain stable.
 
 `RecentActivity`: semantic label/timestamp/link only.
 
@@ -651,8 +653,7 @@ git commit -m "feat: add role-aware portfolio cockpit"
 ~~~ts
 type ProjectCockpitPageData =
   | { status: "ready"; data: ProjectCockpit }
-  | { status: "unavailable" }
-  | { status: "not_found" };
+  | { status: "unavailable" };
 ~~~
 
 - [ ] **Step 1: Write RED project overview order test**
@@ -667,7 +668,7 @@ Assert:
 - Agent waiting-human says “等待人工输入” not “等待你”;
 - latest failed AgentRun shown;
 - current parse-failed file shown;
-- restricted locator/access-policy sentinel absent from `page.content()`.
+- restricted locator/access-policy sentinel from `environment.cockpit.currentParseFailureLocator/currentParseFailureAccessPolicyRef` absent from `page.content()`.
 
 - [ ] **Step 3: Write RED deep-link test**
 
@@ -686,7 +687,7 @@ pnpm exec playwright test tests/acceptance/progress-cockpit.spec.ts --grep "proj
 
 - [ ] **Step 5: Add project adapter**
 
-Authorization/not-found preserves existing `notFound()`. Authorized projection failure returns `unavailable`.
+The project page keeps its existing `getProjectOverview(member, projectId)` + `notFound()` canonical access/not-found gate exactly as today. The cockpit adapter only maps cockpit projection/query failure to `unavailable`; it does not invent a second not-found contract.
 
 - [ ] **Step 6: Add AgentRun anchor**
 
