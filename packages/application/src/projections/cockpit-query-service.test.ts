@@ -12,6 +12,11 @@ import {
   loadCurrentProjectFacts,
   loadVisibleProjectIds,
 } from "./cockpit-current-query";
+import { loadRecentCockpitActivity } from "./cockpit-activity-query";
+import {
+  getProjectCockpit,
+  listPortfolioCockpit,
+} from "./cockpit-query-service";
 
 const TEAM_A = "cockpit-team-a";
 const TEAM_B = "cockpit-team-b";
@@ -29,6 +34,8 @@ const SUBMISSION_SENTINEL = "SENSITIVE_SUBMISSION_SUMMARY";
 const DECISION_SENTINEL = "SENSITIVE_DECISION_REASON";
 const AGENT_SENTINEL = "SENSITIVE_AGENT_REQUEST";
 const SOURCE_SENTINEL = "SENSITIVE_SOURCE_METADATA";
+const ACTIVITY_SENTINEL = "SENSITIVE_ACTIVITY_PAYLOAD";
+const NOW = new Date("2026-10-01T12:00:00.000Z");
 
 const researcherViewer: CockpitViewer = {
   memberId: VIEWER,
@@ -102,7 +109,11 @@ describe("cockpit current-state queries", () => {
         ('task-review-me', $1, '待我审核', 'awaiting_review', $3, 'human', 'required', '[]'::jsonb, 2, $3),
         ('task-review-other', $1, '待他人审核', 'awaiting_review', $2, 'human', 'required', '[]'::jsonb, 2, $2),
         ('task-await-decision', $1, '等待科学决策', 'awaiting_review', $3, 'human', 'required', '[]'::jsonb, 2, $3),
-        ('task-agent', $1, 'Agent 任务', 'in_progress', $2, 'agent', 'none', '[]'::jsonb, 2, $2)`,
+        ('task-agent', $1, 'Agent 任务', 'in_progress', $2, 'agent', 'none', '[]'::jsonb, 2, $2),
+        ('task-history', $1, '历史受阻但当前执行中', 'in_progress', $2, 'human', 'none', '[]'::jsonb, 2, $2),
+        ('task-blocked-2', $1, '受阻任务二', 'blocked', $2, 'human', 'none', '[]'::jsonb, 2, $2),
+        ('task-blocked-3', $1, '受阻任务三', 'blocked', $2, 'human', 'none', '[]'::jsonb, 2, $2),
+        ('task-blocked-4', $1, '受阻任务四', 'blocked', $2, 'human', 'none', '[]'::jsonb, 2, $2)`,
       [PROJECT_A, VIEWER, OTHER_REVIEWER],
     );
     await testDb.client.sql.unsafe(
@@ -246,6 +257,54 @@ describe("cockpit current-state queries", () => {
         ('parse-failure-current', 'file-current-v1', 'parser', 'fixture-parser', '1',
          'failed', repeat('d', 64), '[]'::jsonb, 'parse_failed', now())`,
     );
+
+    await testDb.client.sql.unsafe(
+      `insert into research_events
+        (id, project_id, event_type, actor_type, actor_id, payload, created_at)
+       values
+        ('activity-state', $1, 'RESEARCH_STATE_CHANGED', 'human', $2,
+         $3::jsonb, '2026-10-01T11:30:00Z'),
+        ('activity-result', $1, 'RESEARCH_RESULT_CREATED', 'human', $2,
+         '{"resultId":"result-safe"}'::jsonb, '2026-10-01T11:20:00Z'),
+        ('activity-agent-failed', $1, 'AGENT_RUN_FAILED', 'system', 'fixture-agent',
+         '{"agentRunId":"agent-run-1"}'::jsonb, '2026-10-01T11:10:00Z'),
+        ('activity-file-parse', $1, 'FILE_PARSE_FAILED', 'system', 'fixture-parser',
+         '{"fileVersionId":"file-old-v1","sha256":"RAW_SHA_MUST_NOT_LEAK","errorCode":"RICH_PARSE_FAILED"}'::jsonb,
+         '2026-10-01T11:00:00Z'),
+        ('activity-task-blocked', $1, 'RESEARCH_TASK_BLOCKED', 'human', $2,
+         '{"researchTaskId":"task-history"}'::jsonb, '2026-10-01T10:50:00Z'),
+        ('activity-review', $1, 'REVIEW_REASSIGNED', 'human', $2,
+         '{"reviewRequestId":"review-other","reviewerMemberId":"cockpit-researcher-b"}'::jsonb,
+         '2026-10-01T10:40:00Z'),
+        ('activity-decision', $1, 'SCIENTIFIC_DECISION_CREATED', 'human', $2,
+         '{"decisionId":"decision-team"}'::jsonb, '2026-10-01T10:30:00Z'),
+        ('activity-file-created', $1, 'RESEARCH_FILE_CREATED', 'human', $2,
+         '{"researchFileId":"file-current-fail"}'::jsonb, '2026-10-01T10:20:00Z'),
+        ('activity-version-created', $1, 'FILE_VERSION_CREATED', 'human', $2,
+         '{"researchFileId":"file-current-fail","fileVersionId":"file-current-v1","versionNumber":1}'::jsonb,
+         '2026-10-01T10:10:00Z'),
+        ('activity-submission', $1, 'TASK_SUBMISSION_CREATED', 'human', $2,
+         '{"researchTaskId":"task-review-me","taskSubmissionId":"submission-me","submissionNumber":1}'::jsonb,
+         '2026-10-01T10:00:00Z'),
+        ('activity-extra-1', $1, 'RESEARCH_TASK_UNBLOCKED', 'human', $2,
+         '{"researchTaskId":"task-history"}'::jsonb, '2026-10-01T09:50:00Z'),
+        ('activity-extra-2', $1, 'RESEARCH_TASK_REOPENED', 'human', $2,
+         '{"researchTaskId":"task-history"}'::jsonb, '2026-10-01T09:40:00Z'),
+        ('activity-old', $1, 'RESEARCH_TASK_BLOCKED', 'human', $2,
+         '{"researchTaskId":"task-history"}'::jsonb, '2026-09-01T00:00:00Z'),
+        ('activity-unknown', $1, 'COCKPIT_UNKNOWN_EVENT', 'human', $2,
+         '{"researchTaskId":"task-history"}'::jsonb, '2026-10-01T11:45:00Z')`,
+      [
+        PROJECT_A,
+        VIEWER,
+        JSON.stringify({
+          dimension: "数据",
+          state: "验证中",
+          extra: ACTIVITY_SENTINEL,
+        }),
+      ],
+    );
+
   }, 120_000);
 
   afterAll(async () => {
@@ -354,4 +413,131 @@ describe("cockpit current-state queries", () => {
       );
     }
   });
+
+  it("loads only curated recent activity within the 14-day window", async () => {
+    const activity = await runInReadOnlySnapshot(testDb.client.sql, (tx) =>
+      loadRecentCockpitActivity(tx, [PROJECT_A], NOW),
+    );
+
+    expect(activity).toHaveLength(10);
+    expect(activity.map((item) => item.id)).not.toContain("activity-old");
+    expect(activity.map((item) => item.id)).not.toContain("activity-unknown");
+    expect(activity.map((item) => item.kind)).toContain("research_state_changed");
+    expect(activity.map((item) => item.kind)).toContain("research_result_created");
+    expect(activity.map((item) => item.kind)).toContain("agent_run_changed");
+    expect(activity.map((item) => item.kind)).toContain("file_parse_failed");
+    expect(activity[0]?.occurredAt.getTime()).toBeGreaterThanOrEqual(
+      activity.at(-1)?.occurredAt.getTime() ?? 0,
+    );
+
+    const serialized = JSON.stringify(activity);
+    expect(serialized).not.toContain(ACTIVITY_SENTINEL);
+    expect(serialized).not.toContain("RAW_SHA_MUST_NOT_LEAK");
+    expect(serialized).not.toContain("RICH_PARSE_FAILED");
+  });
+
+  it("keeps historical events separate from current attention", async () => {
+    const project = await getProjectCockpit(
+      testDb.client.sql,
+      researcherViewer,
+      PROJECT_A,
+      NOW,
+    );
+
+    expect(
+      project.attention.some(
+        (item) =>
+          item.kind === "blocked_task" &&
+          "taskId" in item &&
+          item.taskId === "task-history",
+      ),
+    ).toBe(false);
+    expect(
+      project.attention.some(
+        (item) =>
+          item.kind === "agent_run_failed" &&
+          "agentTaskId" in item &&
+          item.agentTaskId === "agent-task-current",
+      ),
+    ).toBe(false);
+    expect(
+      project.attention.some(
+        (item) =>
+          item.kind === "file_parse_failed" &&
+          "researchFileId" in item &&
+          item.researchFileId === "file-old-fail",
+      ),
+    ).toBe(false);
+
+    expect(project.recentActivity.map((item) => item.id)).toEqual(
+      expect.arrayContaining([
+        "activity-task-blocked",
+        "activity-agent-failed",
+        "activity-file-parse",
+      ]),
+    );
+  });
+
+  it("assembles role-aware portfolio and full project projections", async () => {
+    const portfolio = await listPortfolioCockpit(
+      testDb.client.sql,
+      researcherViewer,
+      NOW,
+    );
+    const project = await getProjectCockpit(
+      testDb.client.sql,
+      researcherViewer,
+      PROJECT_A,
+      NOW,
+    );
+
+    expect(portfolio.generatedAt).toEqual(NOW);
+    expect(project.generatedAt).toEqual(NOW);
+    expect(portfolio.projects).toHaveLength(1);
+    expect(portfolio.projects[0]?.project.id).toBe(PROJECT_A);
+
+    const blockedLane = portfolio.projects[0]?.lanes.find(
+      (lane) => lane.kind === "blocked_task",
+    );
+    expect(blockedLane?.totalCount).toBe(4);
+    expect(blockedLane?.preview).toHaveLength(3);
+
+    expect(portfolio.myActions.map((item) => item.kind)).toEqual(
+      expect.arrayContaining(["my_review", "my_scientific_decision"]),
+    );
+    expect(project.explicitActions.map((item) => item.kind)).toEqual(
+      expect.arrayContaining(["my_review", "my_scientific_decision"]),
+    );
+    expect(
+      project.attention.filter((item) => item.kind === "blocked_task"),
+    ).toHaveLength(4);
+
+    const serialized = JSON.stringify({ portfolio, project });
+    expect(serialized).not.toMatch(
+      /progressPercent|healthScore|riskScore|priorityScore/i,
+    );
+  });
+
+  it("does not write ResearchEvent or Outbox state while projecting", async () => {
+    const beforeEvents = await testDb.client.sql.unsafe(
+      "select count(*)::int as count from research_events",
+    );
+    const beforeOutbox = await testDb.client.sql.unsafe(
+      "select count(*)::int as count from outbox_events",
+    );
+
+    await listPortfolioCockpit(testDb.client.sql, researcherViewer, NOW);
+    await getProjectCockpit(testDb.client.sql, researcherViewer, PROJECT_A, NOW);
+
+    const afterEvents = await testDb.client.sql.unsafe(
+      "select count(*)::int as count from research_events",
+    );
+    const afterOutbox = await testDb.client.sql.unsafe(
+      "select count(*)::int as count from outbox_events",
+    );
+
+    expect(afterEvents[0]?.count).toBe(beforeEvents[0]?.count);
+    expect(afterOutbox[0]?.count).toBe(beforeOutbox[0]?.count);
+  });
+
 });
