@@ -244,7 +244,7 @@ describe("cockpit current-state queries", () => {
          status, input_hash, output_refs, error_code, finished_at)
        values
         ('parse-failure-current', 'file-current-v1', 'parser', 'fixture-parser', '1',
-         'failed', 'hash-current', '[]'::jsonb, 'parse_failed', now())`,
+         'failed', repeat('d', 64), '[]'::jsonb, 'parse_failed', now())`,
     );
   }, 120_000);
 
