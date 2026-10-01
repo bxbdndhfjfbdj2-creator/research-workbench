@@ -23,6 +23,11 @@ async function login(
 
 test.beforeAll(async () => {
   environment = await startAcceptanceEnvironment({ cockpitFixtures: true });
+  if (!environment.cockpit) throw new Error("Cockpit acceptance controller missing");
+  await environment.cockpit.ageTask(
+    environment.cockpit.idleTaskId,
+    "2026-09-01T00:00:00.000Z",
+  );
 });
 
 test.afterAll(async () => {
@@ -68,4 +73,102 @@ test("我的明确行动 only contains work formally assigned to the current mem
   const leadActions = page.getByTestId("my-actions");
   await expect(leadActions).not.toContainText("变更正式理论");
   await expect(leadActions).not.toContainText("Cockpit 待研究成员2审核");
+});
+
+
+test("project overview keeps scientific state before cockpit attention and members", async ({
+  page,
+}) => {
+  const projectLead = environment.researchers[0];
+  if (!projectLead?.projectId) throw new Error("Acceptance project missing");
+
+  await login(page, projectLead.email, projectLead.password);
+  await page.goto(`/projects/${projectLead.projectId}`);
+
+  await expect(page.getByRole("heading", { name: "多维科研状态" })).toBeVisible();
+  await expect(page.getByTestId("project-actions")).toBeVisible();
+  await expect(page.getByTestId("project-attention")).toBeVisible();
+  await expect(page.getByTestId("recent-activity")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "项目成员" })).toBeVisible();
+
+  const headings = await page.locator("h3").allTextContents();
+  expect(headings.indexOf("多维科研状态")).toBeLessThan(
+    headings.indexOf("项目关注"),
+  );
+  expect(headings.indexOf("项目关注")).toBeLessThan(
+    headings.indexOf("最近重要正式变化"),
+  );
+  expect(headings.indexOf("最近重要正式变化")).toBeLessThan(
+    headings.indexOf("项目成员"),
+  );
+});
+
+test("project cockpit projects current blocked idle Agent and file facts safely", async ({
+  page,
+}) => {
+  const projectLead = environment.researchers[0];
+  const cockpit = environment.cockpit;
+  if (!projectLead?.projectId || !cockpit) {
+    throw new Error("Acceptance project/cockpit fixture missing");
+  }
+
+  await login(page, projectLead.email, projectLead.password);
+  await page.goto(`/projects/${projectLead.projectId}`);
+
+  const attention = page.getByTestId("project-attention");
+  await expect(attention).toContainText("Cockpit 受阻任务 · 任务受阻");
+  await expect(attention).toContainText("Cockpit 长时间无记录活动");
+  await expect(attention).toContainText("等待人工输入");
+  await expect(attention).toContainText("最新 Agent 运行失败");
+  await expect(attention).toContainText(
+    "Cockpit Restricted Parse Failure · 当前文件版本解析失败",
+  );
+  await expect(attention).not.toContainText("等待你");
+
+  const html = await page.content();
+  expect(html).not.toContain(cockpit.currentParseFailureLocator);
+  expect(html).not.toContain(cockpit.currentParseFailureAccessPolicyRef);
+});
+
+test("project cockpit deep-links to canonical workflows only", async ({ page }) => {
+  const projectLead = environment.researchers[0];
+  const cockpit = environment.cockpit;
+  if (!projectLead?.projectId || !cockpit) {
+    throw new Error("Acceptance project/cockpit fixture missing");
+  }
+
+  const projectId = projectLead.projectId;
+  await login(page, projectLead.email, projectLead.password);
+  await page.goto(`/projects/${projectId}`);
+
+  const actions = page.getByTestId("project-actions");
+  await expect(
+    actions.getByRole("link", { name: /变更正式理论/ }),
+  ).toHaveAttribute("href", `/projects/${projectId}/decisions`);
+
+  const attention = page.getByTestId("project-attention");
+  await expect(
+    attention.getByRole("link", { name: /Cockpit 受阻任务/ }),
+  ).toHaveAttribute("href", `/projects/${projectId}/work/${cockpit.blockedTaskId}`);
+  await expect(
+    attention.getByRole("link", { name: /Cockpit 长时间无记录活动/ }),
+  ).toHaveAttribute("href", `/projects/${projectId}/work/${cockpit.idleTaskId}`);
+  await expect(
+    attention.getByRole("link", { name: /等待人工输入/ }),
+  ).toHaveAttribute(
+    "href",
+    `/projects/${projectId}/agent-work#agent-run-${environment.agentWork.waitingRunId}`,
+  );
+  await expect(
+    attention.getByRole("link", { name: /最新 Agent 运行失败/ }),
+  ).toHaveAttribute(
+    "href",
+    `/projects/${projectId}/agent-work#agent-run-${environment.agentWork.failedRunId}`,
+  );
+  await expect(
+    attention.getByRole("link", { name: /当前文件版本解析失败/ }),
+  ).toHaveAttribute(
+    "href",
+    `/projects/${projectId}/files/${cockpit.currentParseFailureFileId}`,
+  );
 });
