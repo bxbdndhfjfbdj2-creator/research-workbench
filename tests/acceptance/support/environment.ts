@@ -103,6 +103,8 @@ export type CockpitAcceptanceController = {
   currentParseFailureFileId: string;
   currentParseFailureLocator: string;
   currentParseFailureAccessPolicyRef: string;
+  rawEventShaSentinel: string;
+  rawEventErrorSentinel: string;
   ageTask: (taskId: string, isoTime: string) => Promise<void>;
   setRawDimensionState: (state: string) => Promise<void>;
 };
@@ -701,6 +703,8 @@ export async function startAcceptanceEnvironment(
           currentParseFailureFileId: string;
           currentParseFailureLocator: string;
           currentParseFailureAccessPolicyRef: string;
+          rawEventShaSentinel: string;
+          rawEventErrorSentinel: string;
           dimensionStateId: string;
         }
       | undefined;
@@ -823,6 +827,70 @@ export async function startAcceptanceEnvironment(
         [randomUUID(), fileVersionId, uploadSha],
       );
 
+      // Keep Recent Activity coverage deterministic: create fresh formal
+      // scientific-state and ResearchResult events after the shared seed.
+      await setDimensionState(
+        db.sql,
+        owner.projectId,
+        "主分析",
+        "验证中",
+        actor,
+      );
+
+      const resultSourceRows = await db.sql.unsafe(
+        `select data_version_ref, analysis_revision_id
+         from research_results
+         where id = $1
+         limit 1`,
+        [seeded.fileLinkTargets.researchResultId],
+      );
+      const resultSource = resultSourceRows[0];
+      if (!resultSource) {
+        throw new Error("Cockpit acceptance result source missing");
+      }
+      await createResearchResult(
+        db.sql,
+        {
+          projectId: owner.projectId,
+          dataVersionRef: String(resultSource.data_version_ref),
+          analysisRevisionId: String(resultSource.analysis_revision_id),
+          executionKind: "human",
+          runRef: "cockpit-recent-result",
+          outputRefs: ["artifact:cockpit-recent-result"],
+        },
+        actor,
+      );
+
+      const staleActivityTask = await createResearchTask(
+        db.sql,
+        owner.projectId,
+        { title: "Cockpit 14天外事件" },
+        actor,
+      );
+      const rawEventShaSentinel = "COCKPIT_RAW_EVENT_SHA_SENTINEL";
+      const rawEventErrorSentinel = "COCKPIT_RAW_EVENT_ERROR_SENTINEL";
+      await db.sql.unsafe(
+        `insert into research_events
+          (id, project_id, event_type, actor_type, actor_id, payload, created_at)
+         values
+          ($1, $2, 'FILE_PARSE_FAILED', 'system', 'acceptance-parser',
+           $3::jsonb, now()),
+          ($4, $2, 'RESEARCH_TASK_BLOCKED', 'human', $5,
+           $6::jsonb, now() - interval '15 days')`,
+        [
+          randomUUID(),
+          owner.projectId,
+          JSON.stringify({
+            fileVersionId,
+            sha256: rawEventShaSentinel,
+            errorCode: rawEventErrorSentinel,
+          }),
+          randomUUID(),
+          owner.id,
+          JSON.stringify({ researchTaskId: staleActivityTask.id }),
+        ],
+      );
+
       const dimensionRows = await db.sql.unsafe(
         `select id
          from research_dimension_states
@@ -843,6 +911,8 @@ export async function startAcceptanceEnvironment(
         currentParseFailureFileId: researchFileId,
         currentParseFailureLocator: locator,
         currentParseFailureAccessPolicyRef: accessPolicyRef,
+        rawEventShaSentinel,
+        rawEventErrorSentinel,
         dimensionStateId: String(dimensionStateId),
       };
     }
@@ -949,6 +1019,8 @@ export async function startAcceptanceEnvironment(
               currentParseFailureLocator: cockpitFixture.currentParseFailureLocator,
               currentParseFailureAccessPolicyRef:
                 cockpitFixture.currentParseFailureAccessPolicyRef,
+              rawEventShaSentinel: cockpitFixture.rawEventShaSentinel,
+              rawEventErrorSentinel: cockpitFixture.rawEventErrorSentinel,
               async ageTask(taskId: string, isoTime: string) {
                 await db.sql.unsafe(
                   "update research_tasks set updated_at = $2::timestamptz where id = $1",
