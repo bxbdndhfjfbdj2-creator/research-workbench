@@ -57,7 +57,11 @@ function RunCard({
 }) {
   const question = questionDetails(run);
   return (
-    <article className="agent-run-card" data-testid="agent-run">
+    <article
+      className="agent-run-card"
+      data-testid="agent-run"
+      id={`agent-run-${run.id}`}
+    >
       <div className="agent-run-heading">
         <strong>尝试 {run.attemptNumber}</strong>
         <span className="status-label">{run.state}</span>

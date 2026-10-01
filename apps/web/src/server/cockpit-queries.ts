@@ -1,9 +1,13 @@
 import "server-only";
 
-import { listPortfolioCockpit } from "@research-workbench/application/src/projections/cockpit-query-service";
+import {
+  getProjectCockpit,
+  listPortfolioCockpit,
+} from "@research-workbench/application/src/projections/cockpit-query-service";
 import type {
   CockpitViewer,
   PortfolioCockpit,
+  ProjectCockpit,
 } from "@research-workbench/application/src/projections/cockpit-types";
 import { createDbClient } from "@research-workbench/db/src/client";
 import type { CurrentMember } from "./queries";
@@ -51,6 +55,31 @@ export async function loadPortfolioCockpitForPage(
     return { status: "ready", data };
   } catch (error) {
     console.error("[cockpit] portfolio projection unavailable", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+    return { status: "unavailable" };
+  }
+}
+
+
+export type ProjectCockpitPageData =
+  | { status: "ready"; data: ProjectCockpit }
+  | { status: "unavailable" };
+
+export async function loadProjectCockpitForPage(
+  member: CurrentMember,
+  projectId: string,
+): Promise<ProjectCockpitPageData> {
+  try {
+    const data = await getProjectCockpit(
+      webDb().sql,
+      toViewer(member),
+      projectId,
+      new Date(),
+    );
+    return { status: "ready", data };
+  } catch (error) {
+    console.error("[cockpit] project projection unavailable", {
       errorName: error instanceof Error ? error.name : "UnknownError",
     });
     return { status: "unavailable" };
