@@ -337,15 +337,9 @@ describe("cockpit current-state queries", () => {
     ).toBe("team_lead");
   });
 
-  it("fails closed on an unknown projection-critical canonical status", async () => {
+  it("fails closed on an unknown projection-critical canonical state", async () => {
     await testDb.client.sql.unsafe(
-      `insert into research_tasks
-        (id, project_id, title, status, assignee_member_id, execution_mode,
-         review_policy, acceptance_criteria, workflow_version, created_by)
-       values
-        ('task-unknown-status', $1, '未知状态', 'projection_test_unknown', $2,
-         'human', 'none', '[]'::jsonb, 2, $2)`,
-      [PROJECT_A, VIEWER],
+      "update research_dimension_states set state = 'projection_test_unknown' where id = 'cockpit-dimension'",
     );
 
     try {
@@ -356,7 +350,7 @@ describe("cockpit current-state queries", () => {
       ).rejects.toBeInstanceOf(CockpitProjectionInconsistencyError);
     } finally {
       await testDb.client.sql.unsafe(
-        "delete from research_tasks where id = 'task-unknown-status'",
+        "update research_dimension_states set state = '验证中' where id = 'cockpit-dimension'",
       );
     }
   });

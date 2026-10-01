@@ -145,6 +145,7 @@ async function loadTasks(
     `select
        t.id, t.project_id, p.title as project_title, t.title, t.status,
        t.assignee_member_id, owner.display_name as owner_name, t.updated_at,
+       latest_submission.submission_number,
        latest_submission.created_at as latest_submission_at,
        rr.id as review_id, rr.status as review_status,
        rr.reviewer_member_id, rr.created_at as review_created_at,
