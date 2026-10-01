@@ -164,7 +164,8 @@ export async function runInReadOnlySnapshot<T>(
 
 Using `tests/integration/support/postgres.ts`:
 1. a write inside `runInReadOnlySnapshot()` is rejected;
-2. first read inside snapshot → external connection updates row → second read inside snapshot still sees first value → new read after snapshot sees update.
+2. first read inside snapshot → external connection updates row → second read inside snapshot still sees first value → new read after snapshot sees update;
+3. snapshot acquisition has a bounded timeout and a late-resolving reserved connection is released rather than leaked.
 
 - [ ] **Step 2: Verify RED**
 
@@ -172,15 +173,20 @@ Using `tests/integration/support/postgres.ts`:
 pnpm exec vitest run packages/application/src/transactions.test.ts
 ~~~
 
-- [ ] **Step 3: Implement helper**
+- [ ] **Step 3: Implement helper without shared-pool `sql.begin()`**
 
-Use postgres.js:
+The repository is pinned to `postgres@3.4.9`. Do **not** implement this helper with shared-pool `sql.begin()`: upstream issue #1189 documents a current reservation race in that release.
 
-~~~ts
-sql.begin("isolation level repeatable read read only", async (tx) => ...)
-~~~
+Instead:
+1. acquire an isolated connection with `sql.reserve()`;
+2. bound acquisition (5 seconds) so a stalled reserve becomes an explicit projection failure;
+3. if a timed-out reserve later resolves, immediately `release()` it;
+4. on the reserved connection run `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY`;
+5. invoke `work({ unsafe: reserved.unsafe.bind(reserved) })`;
+6. `COMMIT` on success, `ROLLBACK` on failure;
+7. always `release()` in `finally`.
 
-Expose the same `TransactionSql = Pick<DatabaseSql, "unsafe">` callback shape. Do not change `runInTransaction()`.
+This also explicitly mitigates the current upstream reserve-stall failure mode (#1195) at the request boundary. Keep `runInTransaction()` unchanged.
 
 - [ ] **Step 4: Verify GREEN**
 
@@ -394,7 +400,16 @@ Use Task 1 helper for Decision stage.
 
 - [ ] **Step 7: Fail closed on unknown canonical status**
 
-Validate task, Review, Decision, and Agent statuses against domain constants. Unknown current state throws `CockpitProjectionInconsistencyError`.
+Validate all projection-critical canonical enums against domain constants:
+- task status against `RESEARCH_TASK_STATUSES`;
+- Review status against `REVIEW_REQUEST_STATUSES`;
+- Decision status against `DECISION_STATUSES`;
+- Agent state against `AGENT_RUN_STATES`;
+- research dimension name/state against `RESEARCH_DIMENSIONS` and `RESEARCH_DIMENSION_STATES`;
+- current FileVersion parse status against the supported parse-status set;
+- file access class against `FILE_ACCESS_CLASSES`.
+
+Any unknown current value throws `CockpitProjectionInconsistencyError`. Historical unknown event types remain non-fatal and are simply excluded unless allowlisted.
 
 - [ ] **Step 8: Verify GREEN**
 
