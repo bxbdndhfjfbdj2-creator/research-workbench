@@ -11,6 +11,7 @@ import { enqueueOutbox } from "../outbox/enqueue-outbox";
 import { runInTransaction } from "../transactions";
 import { applyApprovedDecision } from "./apply-decision";
 import { mapDecisionRow } from "./create-decision";
+import { resolveScientificDecisionReviewStage } from "./review-eligibility";
 
 export async function reviewScientificDecision(
   sql: DatabaseSql,
@@ -52,14 +53,18 @@ export async function reviewScientificDecision(
 
     const projectId = String(current.project_id);
     let nextStatus: ScientificDecision["status"];
-    let stage: "project_lead" | "team_lead";
+    const stage = resolveScientificDecisionReviewStage({
+      status: status as ScientificDecision["status"],
+      projectLeadMemberId: String(current.lead_member_id),
+      reviewerMemberId: actor.id,
+      reviewerOrganizationRole: current.reviewer_organization_role as "lead" | "researcher",
+    });
     let eventType: string;
 
     if (status === "proposed" || status === "needs_evidence") {
-      if (String(current.lead_member_id) !== actor.id) {
+      if (stage !== "project_lead") {
         throw new Error("Project lead review is required before team lead review");
       }
-      stage = "project_lead";
       if (action === "request_evidence") {
         nextStatus = "needs_evidence";
         eventType = "SCIENTIFIC_DECISION_EVIDENCE_REQUESTED";
@@ -74,10 +79,9 @@ export async function reviewScientificDecision(
         eventType = "SCIENTIFIC_DECISION_APPROVED";
       }
     } else if (status === "awaiting_lead") {
-      if (current.reviewer_organization_role !== "lead") {
+      if (stage !== "team_lead") {
         throw new Error("Organization lead approval is required for a major scientific decision");
       }
-      stage = "team_lead";
       if (action === "request_evidence") {
         nextStatus = "needs_evidence";
         eventType = "SCIENTIFIC_DECISION_EVIDENCE_REQUESTED";

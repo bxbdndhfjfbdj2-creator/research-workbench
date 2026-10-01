@@ -3,6 +3,7 @@ import "server-only";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { authorizeProjectAccess } from "@research-workbench/application/src/auth/authorize";
+import { resolveScientificDecisionReviewStage } from "@research-workbench/application/src/decisions/review-eligibility";
 import { createDbClient } from "@research-workbench/db/src/client";
 import { RESEARCH_DIMENSIONS } from "@research-workbench/domain/src/research-dimensions";
 import type {
@@ -482,11 +483,12 @@ async function loadDecisionItems(
         [decisionId],
       );
       const status = row.status as DecisionCenterItem["status"];
-      const projectLead = String(row.lead_member_id) === member.id;
-      const canProjectLeadReview =
-        projectLead && (status === "proposed" || status === "needs_evidence");
-      const canTeamLeadReview =
-        member.organizationRole === "lead" && status === "awaiting_lead";
+      const reviewStage = resolveScientificDecisionReviewStage({
+        status,
+        projectLeadMemberId: String(row.lead_member_id),
+        reviewerMemberId: member.id,
+        reviewerOrganizationRole: member.organizationRole,
+      });
 
       return {
         id: decisionId,
@@ -506,12 +508,8 @@ async function loadDecisionItems(
         targetRevisionSummary: row.target_revision_id
           ? summaryFromJson(row.target_content)
           : null,
-        canReview: canProjectLeadReview || canTeamLeadReview,
-        reviewStage: canProjectLeadReview
-          ? "project_lead"
-          : canTeamLeadReview
-            ? "team_lead"
-            : null,
+        canReview: reviewStage !== null,
+        reviewStage,
         reviews: reviewRows.map((review) => ({
           stage: String(review.stage),
           action: String(review.action),
