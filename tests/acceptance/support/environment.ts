@@ -854,7 +854,7 @@ export async function startAcceptanceEnvironment(
           projectId: owner.projectId,
           dataVersionRef: String(resultSource.data_version_ref),
           analysisRevisionId: String(resultSource.analysis_revision_id),
-          executionKind: "human",
+          executionKind: "manual",
           runRef: "cockpit-recent-result",
           outputRefs: ["artifact:cockpit-recent-result"],
         },
