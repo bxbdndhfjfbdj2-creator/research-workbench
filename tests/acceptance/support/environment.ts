@@ -18,7 +18,12 @@ import { linkResultEvidence } from "../../../packages/application/src/results/li
 import { createScientificDecision } from "../../../packages/application/src/decisions/create-decision";
 import { reviewScientificDecision } from "../../../packages/application/src/decisions/review-decision";
 import { proposeOfficialRevisionChange } from "../../../packages/application/src/research-graph/official-revision";
-import { createResearchTask } from "../../../packages/application/src/tasks/research-task-service";
+import {
+  blockResearchTask,
+  createResearchTask,
+  startResearchTask,
+} from "../../../packages/application/src/tasks/research-task-service";
+import { submitResearchTask } from "../../../packages/application/src/tasks/task-submission-service";
 import { createAgentTask } from "../../../packages/application/src/agents/create-agent-task";
 import { createAgentRun } from "../../../packages/application/src/agents/create-agent-run";
 import { buildAgentContextSnapshot } from "../../../packages/application/src/agents/context-snapshot";
@@ -90,6 +95,18 @@ export type FileAcceptanceController = {
   }>;
 };
 
+export type CockpitAcceptanceController = {
+  blockedTaskId: string;
+  idleTaskId: string;
+  pendingReviewTaskId: string;
+  pendingReviewRequestId: string;
+  currentParseFailureFileId: string;
+  currentParseFailureLocator: string;
+  currentParseFailureAccessPolicyRef: string;
+  ageTask: (taskId: string, isoTime: string) => Promise<void>;
+  setRawDimensionState: (state: string) => Promise<void>;
+};
+
 export type AcceptanceEnvironment = {
   lead: AcceptanceUser;
   researchers: AcceptanceUser[];
@@ -97,6 +114,7 @@ export type AcceptanceEnvironment = {
   restrictedFile?: RestrictedFileFixture;
   reviewResolution: ReviewResolutionController;
   files?: FileAcceptanceController;
+  cockpit?: CockpitAcceptanceController;
   scientificDecision: {
     projectId: string;
     decisionId: string;
@@ -588,6 +606,7 @@ export async function startAcceptanceEnvironment(
   options: {
     fileServices?: StartedFileAcceptanceServices;
     workReviewFixtures?: boolean;
+    cockpitFixtures?: boolean;
   } = {},
 ): Promise<AcceptanceEnvironment> {
   const container: StartedPostgreSqlContainer =
@@ -618,6 +637,144 @@ export async function startAcceptanceEnvironment(
             { type: "human", id: workReviewOwner.id },
           )
         : null;
+
+    let cockpitFixture:
+      | {
+          blockedTaskId: string;
+          idleTaskId: string;
+          pendingReviewTaskId: string;
+          pendingReviewRequestId: string;
+          currentParseFailureFileId: string;
+          currentParseFailureLocator: string;
+          currentParseFailureAccessPolicyRef: string;
+          dimensionStateId: string;
+        }
+      | undefined;
+
+    if (options.cockpitFixtures) {
+      const owner = seeded.researchers[0];
+      const reviewer = seeded.researchers[1];
+      if (!owner?.projectId || !reviewer) {
+        throw new Error("Cockpit acceptance owner/reviewer missing");
+      }
+      const actor = { type: "human" as const, id: owner.id };
+
+      const blockedTask = await createResearchTask(
+        db.sql,
+        owner.projectId,
+        { title: "Cockpit 受阻任务" },
+        actor,
+      );
+      await startResearchTask(db.sql, blockedTask.id, actor);
+      await blockResearchTask(db.sql, blockedTask.id, actor);
+
+      const idleTask = await createResearchTask(
+        db.sql,
+        owner.projectId,
+        { title: "Cockpit 长时间无记录活动" },
+        actor,
+      );
+      await startResearchTask(db.sql, idleTask.id, actor);
+
+      const reviewTask = await createResearchTask(
+        db.sql,
+        owner.projectId,
+        {
+          title: "Cockpit 待研究成员2审核",
+          reviewPolicy: "required",
+        },
+        actor,
+      );
+      await startResearchTask(db.sql, reviewTask.id, actor);
+      const reviewSubmission = await submitResearchTask(
+        db.sql,
+        reviewTask.id,
+        {
+          summary: "Cockpit formal review submission",
+          reviewerMemberId: reviewer.id,
+        },
+        actor,
+      );
+      if (!reviewSubmission.reviewRequestId) {
+        throw new Error("Cockpit acceptance review request missing");
+      }
+
+      const researchFileId = randomUUID();
+      const externalReferenceId = randomUUID();
+      const fileVersionId = randomUUID();
+      const locator = "secure-datalake://acceptance/cockpit-sensitive";
+      const accessPolicyRef = "policy:cockpit-sensitive";
+
+      await db.sql.unsafe(
+        `insert into external_data_references
+          (id, project_id, uri_or_locator, manifest_hash, access_policy_ref,
+           version_label, created_by)
+         values ($1, $2, $3, $4, $5, 'cockpit-v1', $6)`,
+        [
+          externalReferenceId,
+          owner.projectId,
+          locator,
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          accessPolicyRef,
+          owner.id,
+        ],
+      );
+      await db.sql.unsafe(
+        `insert into research_files
+          (id, project_id, title, file_kind, access_class, lifecycle_state, created_by)
+         values ($1, $2, 'Cockpit Restricted Parse Failure', 'dataset',
+                 'restricted', 'active', $3)`,
+        [researchFileId, owner.projectId, owner.id],
+      );
+      await db.sql.unsafe(
+        `insert into file_versions
+          (id, research_file_id, version_number, external_reference_id,
+           original_filename, source_kind, source_metadata, scan_status,
+           parse_status, created_by)
+         values ($1, $2, 1, $3, 'cockpit-restricted-v1', 'external_reference',
+                 '{}'::jsonb, 'not_applicable', 'failed', $4)`,
+        [fileVersionId, researchFileId, externalReferenceId, owner.id],
+      );
+      await db.sql.unsafe(
+        "update research_files set current_version_id = $2 where id = $1",
+        [researchFileId, fileVersionId],
+      );
+      await db.sql.unsafe(
+        `insert into file_processing_records
+          (id, file_version_id, processor_kind, processor_name, processor_version,
+           status, input_hash, output_refs, error_code, finished_at)
+         values ($1, $2, 'parser', 'acceptance-parser', '1', 'failed',
+                 $3, '[]'::jsonb, 'parse_failed', now())`,
+        [
+          randomUUID(),
+          fileVersionId,
+          "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        ],
+      );
+
+      const dimensionRows = await db.sql.unsafe(
+        `select id
+         from research_dimension_states
+         where project_id = $1 and dimension = '数据'
+         limit 1`,
+        [owner.projectId],
+      );
+      const dimensionStateId = dimensionRows[0]?.id;
+      if (!dimensionStateId) {
+        throw new Error("Cockpit acceptance dimension state missing");
+      }
+
+      cockpitFixture = {
+        blockedTaskId: blockedTask.id,
+        idleTaskId: idleTask.id,
+        pendingReviewTaskId: reviewTask.id,
+        pendingReviewRequestId: reviewSubmission.reviewRequestId,
+        currentParseFailureFileId: researchFileId,
+        currentParseFailureLocator: locator,
+        currentParseFailureAccessPolicyRef: accessPolicyRef,
+        dimensionStateId: String(dimensionStateId),
+      };
+    }
 
     child = spawn(
       "pnpm",
@@ -709,6 +866,32 @@ export async function startAcceptanceEnvironment(
           return { decisionId, processed: rows.length };
         },
       },
+      ...(cockpitFixture
+        ? {
+            cockpit: {
+              blockedTaskId: cockpitFixture.blockedTaskId,
+              idleTaskId: cockpitFixture.idleTaskId,
+              pendingReviewTaskId: cockpitFixture.pendingReviewTaskId,
+              pendingReviewRequestId: cockpitFixture.pendingReviewRequestId,
+              currentParseFailureFileId: cockpitFixture.currentParseFailureFileId,
+              currentParseFailureLocator: cockpitFixture.currentParseFailureLocator,
+              currentParseFailureAccessPolicyRef:
+                cockpitFixture.currentParseFailureAccessPolicyRef,
+              async ageTask(taskId: string, isoTime: string) {
+                await db.sql.unsafe(
+                  "update research_tasks set updated_at = $2::timestamptz where id = $1",
+                  [taskId, isoTime],
+                );
+              },
+              async setRawDimensionState(state: string) {
+                await db.sql.unsafe(
+                  "update research_dimension_states set state = $2 where id = $1",
+                  [cockpitFixture.dimensionStateId, state],
+                );
+              },
+            },
+          }
+        : {}),
       ...(options.fileServices
         ? {
             files: {
