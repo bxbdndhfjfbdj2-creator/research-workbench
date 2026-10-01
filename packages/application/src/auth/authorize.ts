@@ -9,7 +9,7 @@ type AccessRow = {
 };
 
 export async function authorizeProjectAccess(
-  sql: DatabaseSql,
+  sql: Pick<DatabaseSql, "unsafe">,
   actorId: string,
   projectId: string,
   action: ProjectAction,

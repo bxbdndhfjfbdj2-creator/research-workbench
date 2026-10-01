@@ -184,12 +184,12 @@ describe("cockpit current-state queries", () => {
          source_kind, source_metadata, scan_status, parse_status, created_by)
        values
         ('file-current-v1', 'file-current-fail', 1, 'external-current', 'restricted-v1',
-         'external_reference', $2::jsonb, 'not_applicable', 'failed', $3),
+         'external_reference', $1::jsonb, 'not_applicable', 'failed', $2),
         ('file-old-v1', 'file-old-fail', 1, 'external-old', 'old-v1',
-         'external_reference', '{}'::jsonb, 'not_applicable', 'failed', $3),
+         'external_reference', '{}'::jsonb, 'not_applicable', 'failed', $2),
         ('file-old-v2', 'file-old-fail', 2, 'external-old', 'old-v2',
-         'external_reference', '{}'::jsonb, 'not_applicable', 'parsed', $3)`,
-      [PROJECT_A, JSON.stringify({ note: SOURCE_SENTINEL }), VIEWER],
+         'external_reference', '{}'::jsonb, 'not_applicable', 'parsed', $2)`,
+      [JSON.stringify({ note: SOURCE_SENTINEL }), VIEWER],
     );
     await testDb.client.sql.unsafe(
       `update research_files
