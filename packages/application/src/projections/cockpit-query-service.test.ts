@@ -152,13 +152,14 @@ describe("cockpit current-state queries", () => {
     );
     await testDb.client.sql.unsafe(
       `insert into agent_context_snapshots
-        (id, project_id, asset_version_refs, harness_version, harness_profile,
-         runtime_profile, model_route, sandbox_policy, tool_allowlist,
-         subagent_allowlist, created_by_type, created_by_id)
+        (id, project_id, asset_version_refs, skill_version_refs,
+         harness_version, harness_profile, runtime_profile, model_route,
+         sandbox_policy, tool_allowlist, subagent_allowlist,
+         created_by_type, created_by_id)
        values
-        ('agent-context-fixture', $1, '[]'::jsonb, 'fixture-harness', 'fixture-profile',
-         'fixture-runtime', 'fixture-model', 'read-only', '[]'::jsonb,
-         '[]'::jsonb, 'human', $2)`,
+        ('agent-context-fixture', $1, '[]'::jsonb, '[]'::jsonb,
+         'fixture-harness', 'fixture-profile', 'fixture-runtime', 'fixture-model',
+         'read-only', '[]'::jsonb, '[]'::jsonb, 'human', $2)`,
       [PROJECT_A, VIEWER],
     );
     await testDb.client.sql.unsafe(
