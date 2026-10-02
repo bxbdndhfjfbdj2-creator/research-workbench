@@ -226,6 +226,7 @@ test("canonical unblock clears current blocked attention while preserving histor
     `/projects/${projectLead.projectId}/work/${cockpit.blockedTaskId}`,
   );
   await page.getByRole("button", { name: "恢复执行" }).click();
+  await expect(page.getByRole("button", { name: "标记受阻" })).toBeVisible();
 
   await page.goto(`/projects/${projectLead.projectId}`);
   const attention = page.getByTestId("project-attention");
@@ -250,6 +251,9 @@ test("a new formal Submission resets long-idle projection", async ({ page }) => 
     .getByLabel("提交说明")
     .fill("COCKPIT_SUBMISSION_SUMMARY_SECRET");
   await page.getByRole("button", { name: "创建正式提交" }).click();
+  await expect(
+    page.getByTestId("task-submission").filter({ hasText: "Submission #1" }),
+  ).toBeVisible();
 
   await page.goto(`/projects/${projectLead.projectId}`);
   await expect(page.getByTestId("project-attention")).not.toContainText(
@@ -276,6 +280,9 @@ test("retry supersedes current Agent failure and cockpit remains read-only/minim
     .locator(`#agent-run-${environment.agentWork.failedRunId}`)
     .getByRole("button", { name: "重新运行" })
     .click();
+  await expect(
+    page.getByTestId("agent-run").filter({ hasText: "尝试 2" }),
+  ).toBeVisible();
 
   await page.goto(`/projects/${projectId}`);
   const attention = page.getByTestId("project-attention");
