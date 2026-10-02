@@ -18,7 +18,12 @@ import { linkResultEvidence } from "../../../packages/application/src/results/li
 import { createScientificDecision } from "../../../packages/application/src/decisions/create-decision";
 import { reviewScientificDecision } from "../../../packages/application/src/decisions/review-decision";
 import { proposeOfficialRevisionChange } from "../../../packages/application/src/research-graph/official-revision";
-import { createResearchTask } from "../../../packages/application/src/tasks/research-task-service";
+import {
+  blockResearchTask,
+  createResearchTask,
+  startResearchTask,
+} from "../../../packages/application/src/tasks/research-task-service";
+import { submitResearchTask } from "../../../packages/application/src/tasks/task-submission-service";
 import { createAgentTask } from "../../../packages/application/src/agents/create-agent-task";
 import { createAgentRun } from "../../../packages/application/src/agents/create-agent-run";
 import { buildAgentContextSnapshot } from "../../../packages/application/src/agents/context-snapshot";
@@ -90,6 +95,20 @@ export type FileAcceptanceController = {
   }>;
 };
 
+export type CockpitAcceptanceController = {
+  blockedTaskId: string;
+  idleTaskId: string;
+  pendingReviewTaskId: string;
+  pendingReviewRequestId: string;
+  currentParseFailureFileId: string;
+  currentParseFailureLocator: string;
+  currentParseFailureAccessPolicyRef: string;
+  rawEventShaSentinel: string;
+  rawEventErrorSentinel: string;
+  ageTask: (taskId: string, isoTime: string) => Promise<void>;
+  setRawDimensionState: (state: string) => Promise<void>;
+};
+
 export type AcceptanceEnvironment = {
   lead: AcceptanceUser;
   researchers: AcceptanceUser[];
@@ -97,6 +116,7 @@ export type AcceptanceEnvironment = {
   restrictedFile?: RestrictedFileFixture;
   reviewResolution: ReviewResolutionController;
   files?: FileAcceptanceController;
+  cockpit?: CockpitAcceptanceController;
   scientificDecision: {
     projectId: string;
     decisionId: string;
@@ -116,6 +136,45 @@ export type AcceptanceEnvironment = {
 export type FileAcceptanceEnvironment = Omit<AcceptanceEnvironment, "files"> & {
   files: FileAcceptanceController;
 };
+
+function signalProcessTree(
+  child: ChildProcess,
+  signal: NodeJS.Signals,
+): void {
+  if (child.exitCode !== null) return;
+
+  if (process.platform !== "win32" && child.pid) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
+  }
+
+  child.kill(signal);
+}
+
+async function stopServerProcess(child: ChildProcess | undefined): Promise<void> {
+  if (!child || child.exitCode !== null) return;
+
+  const waitForExit = () =>
+    new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, 5_000);
+      child.once("exit", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+
+  signalProcessTree(child, "SIGTERM");
+  await waitForExit();
+
+  if (child.exitCode === null) {
+    signalProcessTree(child, "SIGKILL");
+    await waitForExit();
+  }
+}
 
 async function waitForServer(url: string, child: ChildProcess): Promise<void> {
   const deadline = Date.now() + 90_000;
@@ -137,6 +196,17 @@ async function waitForServer(url: string, child: ChildProcess): Promise<void> {
   }
 
   throw new Error(`Timed out waiting for Next.js: ${String(lastError)}`);
+}
+
+async function closeBootstrapAuthPool(
+  authInstance: ReturnType<typeof createWorkbenchAuth>,
+): Promise<void> {
+  const database = authInstance.options.database as {
+    end?: () => Promise<void>;
+  };
+  if (typeof database?.end === "function") {
+    await database.end();
+  }
 }
 
 async function seedBusinessData(
@@ -186,24 +256,28 @@ async function seedBusinessData(
 
   const businessUsers: AcceptanceUser[] = [];
 
-  for (const user of users) {
-    const authResult = await bootstrapAuth.api.signUpEmail({
-      body: {
+  try {
+    for (const user of users) {
+      const authResult = await bootstrapAuth.api.signUpEmail({
+        body: {
+          email: user.email,
+          password,
+          name: user.displayName,
+        },
+      });
+      const memberId = randomUUID();
+      await createInternalMember(db.sql, {
+        id: memberId,
+        teamId: "acceptance-team",
         email: user.email,
-        password,
-        name: user.displayName,
-      },
-    });
-    const memberId = randomUUID();
-    await createInternalMember(db.sql, {
-      id: memberId,
-      teamId: "acceptance-team",
-      email: user.email,
-      displayName: user.displayName,
-      organizationRole: user.role,
-      authUserId: authResult.user.id,
-    });
-    businessUsers.push({ id: memberId, email: user.email, password });
+        displayName: user.displayName,
+        organizationRole: user.role,
+        authUserId: authResult.user.id,
+      });
+      businessUsers.push({ id: memberId, email: user.email, password });
+    }
+  } finally {
+    await closeBootstrapAuthPool(bootstrapAuth);
   }
 
   const [lead, ...researchers] = businessUsers;
@@ -588,6 +662,7 @@ export async function startAcceptanceEnvironment(
   options: {
     fileServices?: StartedFileAcceptanceServices;
     workReviewFixtures?: boolean;
+    cockpitFixtures?: boolean;
   } = {},
 ): Promise<AcceptanceEnvironment> {
   const container: StartedPostgreSqlContainer =
@@ -619,6 +694,229 @@ export async function startAcceptanceEnvironment(
           )
         : null;
 
+    let cockpitFixture:
+      | {
+          blockedTaskId: string;
+          idleTaskId: string;
+          pendingReviewTaskId: string;
+          pendingReviewRequestId: string;
+          currentParseFailureFileId: string;
+          currentParseFailureLocator: string;
+          currentParseFailureAccessPolicyRef: string;
+          rawEventShaSentinel: string;
+          rawEventErrorSentinel: string;
+          dimensionStateId: string;
+        }
+      | undefined;
+
+    if (options.cockpitFixtures) {
+      const owner = seeded.researchers[0];
+      const reviewer = seeded.researchers[1];
+      if (!owner?.projectId || !reviewer) {
+        throw new Error("Cockpit acceptance owner/reviewer missing");
+      }
+      const actor = { type: "human" as const, id: owner.id };
+
+      const blockedTask = await createResearchTask(
+        db.sql,
+        owner.projectId,
+        { title: "Cockpit 受阻任务" },
+        actor,
+      );
+      await startResearchTask(db.sql, blockedTask.id, actor);
+      await blockResearchTask(db.sql, blockedTask.id, actor);
+
+      const idleTask = await createResearchTask(
+        db.sql,
+        owner.projectId,
+        { title: "Cockpit 长时间无记录活动" },
+        actor,
+      );
+      await startResearchTask(db.sql, idleTask.id, actor);
+
+      const reviewTask = await createResearchTask(
+        db.sql,
+        owner.projectId,
+        {
+          title: "Cockpit 待研究成员2审核",
+          reviewPolicy: "required",
+        },
+        actor,
+      );
+      await startResearchTask(db.sql, reviewTask.id, actor);
+      const reviewSubmission = await submitResearchTask(
+        db.sql,
+        reviewTask.id,
+        {
+          summary: "Cockpit formal review submission",
+          reviewerMemberId: reviewer.id,
+        },
+        actor,
+      );
+      if (!reviewSubmission.reviewRequestId) {
+        throw new Error("Cockpit acceptance review request missing");
+      }
+
+      const researchFileId = randomUUID();
+      const externalReferenceId = randomUUID();
+      const externalVersionId = randomUUID();
+      const fileVersionId = randomUUID();
+      const blobId = randomUUID();
+      const locator = "secure-datalake://acceptance/cockpit-sensitive";
+      const accessPolicyRef = "policy:cockpit-sensitive";
+      const uploadSha =
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+
+      await db.sql.unsafe(
+        `insert into external_data_references
+          (id, project_id, uri_or_locator, manifest_hash, access_policy_ref,
+           version_label, created_by)
+         values ($1, $2, $3, $4, $5, 'cockpit-v1', $6)`,
+        [
+          externalReferenceId,
+          owner.projectId,
+          locator,
+          "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          accessPolicyRef,
+          owner.id,
+        ],
+      );
+      await db.sql.unsafe(
+        `insert into file_blobs
+          (id, sha256, storage_backend, storage_key, byte_size,
+           media_type_detected, quarantine_state)
+         values ($1, $2, 'fixture', $3, 128, 'application/pdf', 'clean')`,
+        [blobId, uploadSha, `cockpit/${blobId}`],
+      );
+      await db.sql.unsafe(
+        `insert into research_files
+          (id, project_id, title, file_kind, access_class, lifecycle_state, created_by)
+         values ($1, $2, 'Cockpit Restricted Parse Failure', 'dataset',
+                 'restricted', 'active', $3)`,
+        [researchFileId, owner.projectId, owner.id],
+      );
+      await db.sql.unsafe(
+        `insert into file_versions
+          (id, research_file_id, version_number, external_reference_id,
+           original_filename, source_kind, source_metadata, scan_status,
+           parse_status, created_by)
+         values ($1, $2, 1, $3, 'cockpit-restricted-v1', 'external_reference',
+                 '{}'::jsonb, 'not_applicable', 'not_applicable', $4)`,
+        [externalVersionId, researchFileId, externalReferenceId, owner.id],
+      );
+      await db.sql.unsafe(
+        `insert into file_versions
+          (id, research_file_id, version_number, blob_id, original_filename,
+           media_type, byte_size, sha256, source_kind, source_metadata,
+           scan_status, parse_status, created_by)
+         values ($1, $2, 2, $3, 'cockpit-upload-v2.pdf',
+                 'application/pdf', 128, $4, 'upload', '{}'::jsonb,
+                 'passed', 'failed', $5)`,
+        [fileVersionId, researchFileId, blobId, uploadSha, owner.id],
+      );
+      await db.sql.unsafe(
+        "update research_files set current_version_id = $2 where id = $1",
+        [researchFileId, fileVersionId],
+      );
+      await db.sql.unsafe(
+        `insert into file_processing_records
+          (id, file_version_id, processor_kind, processor_name, processor_version,
+           status, input_hash, output_refs, error_code, finished_at)
+         values ($1, $2, 'parser', 'acceptance-parser', '1', 'failed',
+                 $3, '[]'::jsonb, 'parse_failed', now())`,
+        [randomUUID(), fileVersionId, uploadSha],
+      );
+
+      // Keep Recent Activity coverage deterministic: create fresh formal
+      // scientific-state and ResearchResult events after the shared seed.
+      await setDimensionState(
+        db.sql,
+        owner.projectId,
+        "主分析",
+        "验证中",
+        actor,
+      );
+
+      const resultSourceRows = await db.sql.unsafe(
+        `select data_version_ref, analysis_revision_id
+         from research_results
+         where id = $1
+         limit 1`,
+        [seeded.fileLinkTargets.researchResultId],
+      );
+      const resultSource = resultSourceRows[0];
+      if (!resultSource) {
+        throw new Error("Cockpit acceptance result source missing");
+      }
+      await createResearchResult(
+        db.sql,
+        {
+          projectId: owner.projectId,
+          dataVersionRef: String(resultSource.data_version_ref),
+          analysisRevisionId: String(resultSource.analysis_revision_id),
+          executionKind: "manual",
+          runRef: "cockpit-recent-result",
+          outputRefs: ["artifact:cockpit-recent-result"],
+        },
+        actor,
+      );
+
+      const staleActivityTask = await createResearchTask(
+        db.sql,
+        owner.projectId,
+        { title: "Cockpit 14天外事件" },
+        actor,
+      );
+      const rawEventShaSentinel = "COCKPIT_RAW_EVENT_SHA_SENTINEL";
+      const rawEventErrorSentinel = "COCKPIT_RAW_EVENT_ERROR_SENTINEL";
+      await db.sql.unsafe(
+        `insert into research_events
+          (id, project_id, event_type, actor_type, actor_id, payload, created_at)
+         values
+          ($1, $2, 'FILE_PARSE_FAILED', 'system', 'acceptance-parser',
+           $3::jsonb, now()),
+          ($4, $2, 'RESEARCH_TASK_BLOCKED', 'human', $5,
+           $6::jsonb, now() - interval '15 days')`,
+        [
+          randomUUID(),
+          owner.projectId,
+          JSON.stringify({
+            fileVersionId,
+            sha256: rawEventShaSentinel,
+            errorCode: rawEventErrorSentinel,
+          }),
+          randomUUID(),
+          owner.id,
+          JSON.stringify({ researchTaskId: staleActivityTask.id }),
+        ],
+      );
+
+      const dimensionRows = await db.sql.unsafe(
+        `select id
+         from research_dimension_states
+         where project_id = $1 and dimension = '数据'
+         limit 1`,
+        [owner.projectId],
+      );
+      const dimensionStateId = dimensionRows[0]?.id;
+      if (!dimensionStateId) {
+        throw new Error("Cockpit acceptance dimension state missing");
+      }
+
+      cockpitFixture = {
+        blockedTaskId: blockedTask.id,
+        idleTaskId: idleTask.id,
+        pendingReviewTaskId: reviewTask.id,
+        pendingReviewRequestId: reviewSubmission.reviewRequestId,
+        currentParseFailureFileId: researchFileId,
+        currentParseFailureLocator: locator,
+        currentParseFailureAccessPolicyRef: accessPolicyRef,
+        rawEventShaSentinel,
+        rawEventErrorSentinel,
+        dimensionStateId: String(dimensionStateId),
+      };
+    }
+
     child = spawn(
       "pnpm",
       ["--filter", "@research-workbench/web", "exec", "next", "dev", "-p", "3100"],
@@ -633,6 +931,7 @@ export async function startAcceptanceEnvironment(
           ...(options.fileServices?.webEnvironment ?? {}),
         },
         stdio: ["ignore", "pipe", "pipe"],
+        detached: process.platform !== "win32",
       },
     );
 
@@ -709,6 +1008,34 @@ export async function startAcceptanceEnvironment(
           return { decisionId, processed: rows.length };
         },
       },
+      ...(cockpitFixture
+        ? {
+            cockpit: {
+              blockedTaskId: cockpitFixture.blockedTaskId,
+              idleTaskId: cockpitFixture.idleTaskId,
+              pendingReviewTaskId: cockpitFixture.pendingReviewTaskId,
+              pendingReviewRequestId: cockpitFixture.pendingReviewRequestId,
+              currentParseFailureFileId: cockpitFixture.currentParseFailureFileId,
+              currentParseFailureLocator: cockpitFixture.currentParseFailureLocator,
+              currentParseFailureAccessPolicyRef:
+                cockpitFixture.currentParseFailureAccessPolicyRef,
+              rawEventShaSentinel: cockpitFixture.rawEventShaSentinel,
+              rawEventErrorSentinel: cockpitFixture.rawEventErrorSentinel,
+              async ageTask(taskId: string, isoTime: string) {
+                await db.sql.unsafe(
+                  "update research_tasks set updated_at = $2::timestamptz where id = $1",
+                  [taskId, isoTime],
+                );
+              },
+              async setRawDimensionState(state: string) {
+                await db.sql.unsafe(
+                  "update research_dimension_states set state = $2 where id = $1",
+                  [cockpitFixture.dimensionStateId, state],
+                );
+              },
+            },
+          }
+        : {}),
       ...(options.fileServices
         ? {
             files: {
@@ -723,26 +1050,14 @@ export async function startAcceptanceEnvironment(
           }
         : {}),
       async stop() {
-        if (child && child.exitCode === null) {
-          child.kill("SIGTERM");
-          await new Promise<void>((resolve) => {
-            const timer = setTimeout(() => {
-              if (child && child.exitCode === null) child.kill("SIGKILL");
-              resolve();
-            }, 5_000);
-            child?.once("exit", () => {
-              clearTimeout(timer);
-              resolve();
-            });
-          });
-        }
+        await stopServerProcess(child);
         await db.close();
         await container.stop();
         await options.fileServices?.stop();
       },
     };
   } catch (error) {
-    if (child && child.exitCode === null) child.kill("SIGKILL");
+    await stopServerProcess(child);
     await db.close();
     await container.stop();
     await options.fileServices?.stop();

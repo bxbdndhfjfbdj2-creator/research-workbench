@@ -5,6 +5,9 @@ import {
   requireCurrentMember,
 } from "../../../../src/server/queries";
 import { ProjectNavigation } from "../../../../src/components/project-navigation";
+import { AttentionSection } from "../../../../src/components/cockpit/attention-section";
+import { RecentActivity } from "../../../../src/components/cockpit/recent-activity";
+import { loadProjectCockpitForPage } from "../../../../src/server/cockpit-queries";
 
 export default async function ProjectPage({
   params,
@@ -15,6 +18,7 @@ export default async function ProjectPage({
   const { projectId } = await params;
   const project = await getProjectOverview(member, projectId);
   if (!project) notFound();
+  const cockpit = await loadProjectCockpitForPage(member, projectId);
 
   return (
     <section>
@@ -37,6 +41,29 @@ export default async function ProjectPage({
           ))}
         </div>
       </div>
+
+      {cockpit.status === "unavailable" ? (
+        <section className="panel cockpit-unavailable" data-testid="project-cockpit-unavailable">
+          <h3>科研关注投影暂时不可用。</h3>
+          <p className="meta">项目科研状态仍来自正式记录；请从现有工作流页面处理正式事项。</p>
+        </section>
+      ) : (
+        <>
+          <AttentionSection
+            title="我的明确行动"
+            items={cockpit.data.explicitActions}
+            emptyMessage="当前没有明确等待你处理的事项。"
+            testId="project-actions"
+          />
+          <AttentionSection
+            title="项目关注"
+            items={cockpit.data.attention}
+            emptyMessage="当前没有项目关注事项。"
+            testId="project-attention"
+          />
+          <RecentActivity items={cockpit.data.recentActivity} />
+        </>
+      )}
 
       <div className="panel">
         <h3>项目成员</h3>

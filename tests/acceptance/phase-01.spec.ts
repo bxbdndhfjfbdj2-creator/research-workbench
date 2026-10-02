@@ -50,7 +50,10 @@ test("project page shows independent multidimensional research states", async ({
   if (!researcher?.projectId) throw new Error("Acceptance project missing");
 
   await login(page, researcher.email, researcher.password);
-  await page.getByRole("link", { name: "研究项目1" }).click();
+  await page
+    .getByTestId("project-card")
+    .getByRole("link", { name: "研究项目1", exact: true })
+    .click();
   await page.waitForURL(`**/projects/${researcher.projectId}`);
 
   await expect(page.getByRole("heading", { name: "研究项目1" })).toBeVisible();
