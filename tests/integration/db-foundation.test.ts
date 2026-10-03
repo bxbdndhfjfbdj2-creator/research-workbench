@@ -45,6 +45,19 @@ describe("foundation database", () => {
       "review_requests",
       "review_actions",
       "review_decision_links",
+      "github_installations",
+      "project_github_repository_bindings",
+      "github_verification_policy_revisions",
+      "github_verification_policy_required_checks",
+      "engineering_verification_targets",
+      "github_references",
+      "research_result_engineering_targets",
+      "agent_run_engineering_targets",
+      "research_task_engineering_targets",
+      "research_result_github_references",
+      "agent_run_github_references",
+      "research_task_github_references",
+      "engineering_verifications",
     ]) {
       expect(tables.has(expected), expected).toBe(true);
     }
