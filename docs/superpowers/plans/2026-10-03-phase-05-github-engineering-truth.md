@@ -417,6 +417,7 @@ git commit -m "feat: link research work to GitHub evidence"
 - Create: `packages/application/src/github/engineering-evidence-query.test.ts`
 - Create: `apps/web/src/server/github-queries.ts`
 - Create: `apps/web/src/server/github-actions.ts`
+- Create: `apps/web/src/server/github-actions.test.ts`
 - Create: `apps/web/src/server/github-runtime.ts`
 - Create: `apps/web/src/components/github/engineering-evidence-view.tsx`
 - Modify: `apps/web/app/(app)/projects/[projectId]/evidence/page.tsx`
@@ -438,7 +439,7 @@ Assert reader vs Project/Organization Lead permissions; provenance and verificat
 
 Run: `pnpm vitest run packages/application/src/github/engineering-evidence-query.test.ts apps/web/src/server/github-actions.test.ts`
 
-Expected: FAIL; create `apps/web/src/server/github-actions.test.ts` with this step.
+Expected: FAIL because query/action/UI files are absent.
 
 - [ ] **Step 3: Implement query/UI/actions**
 
@@ -469,7 +470,9 @@ git commit -m "feat: show GitHub engineering evidence"
 - Modify: `packages/application/src/projections/cockpit-activity-query.ts`
 - Modify: `packages/application/src/projections/cockpit-query-service.ts`
 - Modify: `packages/application/src/projections/cockpit-query-service.test.ts`
-- Modify: `apps/web/src/components/cockpit/cockpit-sections.tsx` if present; otherwise modify the existing component that currently renders `project-attention` / recent activity.
+- Modify: `apps/web/src/components/cockpit/attention-section.tsx`
+- Modify: `apps/web/src/components/cockpit/project-cockpit-card.tsx`
+- Modify: `apps/web/src/components/cockpit/recent-activity.tsx`
 
 **Interfaces:**
 - Adds `engineering_verification_attention` to `AttentionKind` and `ENGINEERING_VERIFICATION_CHANGED` to the curated activity allowlist.
@@ -505,7 +508,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/application/src/projections apps/web/src/components/cockpit
+git add packages/application/src/projections apps/web/src/components/cockpit/attention-section.tsx apps/web/src/components/cockpit/project-cockpit-card.tsx apps/web/src/components/cockpit/recent-activity.tsx
 git commit -m "feat: project GitHub verification into cockpit"
 ```
 
