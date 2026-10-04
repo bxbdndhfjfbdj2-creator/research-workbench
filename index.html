@@ -3,80 +3,40 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="组织语言演示：用事件、规则、任务和状态变化描述组织如何运行。">
-  <title>组织语言 · 演示版</title>
+  <meta name="description" content="网页组织运行时：制度稳定，组织状态持续运行。">
+  <title>组织运行时 · 网页原型</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <main class="shell">
-    <header class="hero">
-      <div>
-        <p class="eyebrow">组织语言 · 最小可执行模型</p>
-        <h1>星河公司</h1>
-        <p class="hero-copy">观察一件普通的“请假”，如何在组织里变成事件、规则、任务与新的状态。</p>
-      </div>
-      <div class="hero-actions">
-        <div class="status-badge" aria-live="polite">
-          <span>当前状态</span>
-          <strong id="organization-status">运行正常</strong>
-        </div>
-        <button id="reset-button" class="button button-quiet" type="button">重置演示</button>
-      </div>
-    </header>
-
-    <section class="flow-strip" aria-label="组织运行逻辑">
-      <span>事件</span><b>→</b><span>规则</span><b>→</b><span>任务</span><b>→</b><span>新事件</span><b>→</b><span>状态变化</span>
-    </section>
-
-    <section class="dashboard">
-      <article class="panel" id="members-panel">
-        <div class="panel-heading">
-          <div>
-            <p class="panel-kicker">组织</p>
-            <h2>成员与角色</h2>
-          </div>
-          <span class="count-badge">2 人</span>
-        </div>
-        <div id="members-list" class="member-list"></div>
-        <div class="panel-action">
-          <button id="submit-leave-button" class="button button-primary" type="button">张三提交请假</button>
-          <p id="submit-hint" class="hint">点击后会触发组织规则。</p>
-        </div>
-      </article>
-
-      <article class="panel panel-focus" id="tasks-panel">
-        <div class="panel-heading">
-          <div>
-            <p class="panel-kicker">任务</p>
-            <h2>现在需要谁做什么</h2>
-          </div>
-          <span id="task-count" class="count-badge">0 项</span>
-        </div>
-        <div id="tasks-list" class="task-list" aria-live="polite"></div>
-      </article>
-
-      <article class="panel" id="events-panel">
-        <div class="panel-heading">
-          <div>
-            <p class="panel-kicker">事件</p>
-            <h2>已经发生了什么</h2>
-          </div>
-          <span id="event-count" class="count-badge">0 条</span>
-        </div>
-        <div id="events-list" class="event-list" aria-live="polite"></div>
-      </article>
-    </section>
-
-    <section class="rules-section" id="rules-panel">
-      <div class="rules-copy">
-        <p class="panel-kicker">规则</p>
-        <h2>组织制度本身，就是可执行逻辑</h2>
-        <p>这不是写死在按钮里的流程说明，而是一条会被事件触发、并产生任务的组织规则。</p>
-      </div>
-      <div id="rules-list" class="rule-card"></div>
-    </section>
-  </main>
-
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">组</span><div><strong id="world-name">组织运行时</strong><small>制度编译 · 组织运行</small></div></div>
+      <nav id="main-nav" aria-label="主导航">
+        <button class="nav-item active" data-view="overview">总览</button>
+        <button class="nav-item" data-view="people">人员</button>
+        <button class="nav-item" data-view="departments">部门</button>
+        <button class="nav-item" data-view="projects">项目</button>
+        <button class="nav-item" data-view="relations">关系</button>
+        <button class="nav-item" data-view="events">事件</button>
+        <button class="nav-item" data-view="policy">制度</button>
+      </nav>
+      <div class="sidebar-foot"><button id="reset-button" class="quiet-button" type="button">重置演示</button></div>
+    </aside>
+    <main class="workspace">
+      <header class="topbar"><div><p>当前模型</p><strong id="model-version">—</strong></div><button id="toggle-operations" class="primary-button" type="button">组织变更</button></header>
+      <div id="notice" class="notice" hidden></div>
+      <section id="view-root" class="view-root" aria-live="polite"></section>
+    </main>
+    <aside id="operation-panel" class="operation-panel" aria-label="组织变更面板">
+      <div class="operation-head"><div><p class="kicker">运行时事件</p><h2>组织变更</h2></div><button id="close-operations" class="icon-button" type="button" aria-label="关闭">×</button></div>
+      <p class="operation-copy">所有操作先形成事件，再以事务方式改变当前组织世界。</p>
+      <form id="operation-form">
+        <label>操作类型<select id="operation-type" name="type"></select></label>
+        <div id="operation-fields"></div>
+        <button class="primary-button wide" type="submit">执行事件</button>
+      </form>
+    </aside>
+  </div>
   <script type="module" src="./src/app.js"></script>
 </body>
 </html>
