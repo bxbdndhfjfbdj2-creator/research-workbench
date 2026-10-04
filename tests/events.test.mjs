@@ -64,6 +64,7 @@ test('重复建立完全相同关系成功但不产生重复事实', () => {
   }, context);
   assert.equal(result.record.status, '成功');
   assert.equal(getRelations(result.world, { subjectId: 'member-zhangsan', type: '属于', objectId: 'dept-rd' }).length, before);
+  assert.deepEqual(result.record.changes, []);
 });
 
 test('非法负责人方向得到失败记录', () => {

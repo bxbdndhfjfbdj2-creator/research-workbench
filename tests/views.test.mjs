@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { ORGANIZATION_MODEL } from '../src/model/organization-model.js';
 import { createSeedWorld } from '../src/demo/seed-world.js';
-import { createEntity, addRelation } from '../src/runtime/world.js';
+import { createEntity, addRelation, setState } from '../src/runtime/world.js';
 import {
   renderOverview, renderPeople, renderDepartments, renderProjects,
   renderRelations, renderEvents, renderPolicy,
@@ -45,26 +45,40 @@ test('项目视图显示跨部门参与成员', () => {
   assert.match(html, /财务部/);
 });
 
+test('部门和项目详情展示与当前对象相关的最近事件', () => {
+  const world = richWorld();
+  const events = [
+    { id:'e1', type:'成员加入部门', params:{memberId:'member-zhangsan',departmentId:'dept-ai'}, status:'成功', changes:[] },
+    { id:'e2', type:'加入项目', params:{memberId:'member-wangwu',projectId:'project-mars'}, status:'成功', changes:[] },
+  ];
+  assert.match(renderDepartments(world, events, { selectedId:'dept-ai' }), /成员加入部门/);
+  assert.match(renderProjects(world, events, { selectedId:'project-mars' }), /加入项目/);
+});
+
 test('关系视图用可读箭头表示当前关系', () => {
   const html = renderRelations(richWorld());
   assert.match(html, /张三\s*—属于→\s*人工智能部/);
   assert.match(html, /火星计划\s*—负责人→\s*王五/);
 });
 
-test('事件视图同时显示成功失败和失败原因', () => {
+test('事件视图同时显示参数、成功失败和失败原因', () => {
   const html = renderEvents([
-    { id:'e1', type:'创建部门', status:'成功', occurredAt:'2026-10-04', changes:[{}], error:null },
-    { id:'e2', type:'人员调岗', status:'失败', occurredAt:'2026-10-04', changes:[], error:'目标部门不存在' },
+    { id:'e1', type:'创建部门', params:{name:'人工智能部'}, status:'成功', occurredAt:'2026-10-04', changes:[{}], error:null },
+    { id:'e2', type:'人员调岗', params:{memberId:'member-zhangsan',toDepartmentId:'missing'}, status:'失败', occurredAt:'2026-10-04', changes:[], error:'目标部门不存在' },
   ]);
   assert.match(html, /创建部门/);
   assert.match(html, /成功/);
   assert.match(html, /人员调岗/);
   assert.match(html, /失败/);
   assert.match(html, /目标部门不存在/);
+  assert.match(html, /事件参数/);
+  assert.match(html, /member-zhangsan/);
+  assert.match(html, /人工智能部/);
 });
 
 test('总览与制度页来自当前世界和稳定模型', () => {
   const overview = renderOverview(richWorld(), []);
+  assert.match(overview, /3/);
   assert.match(overview, /3/);
   assert.match(overview, /1/);
   const policy = renderPolicy(ORGANIZATION_MODEL);

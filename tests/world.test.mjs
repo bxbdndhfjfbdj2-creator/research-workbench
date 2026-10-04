@@ -31,6 +31,14 @@ test('空世界和实体写操作保持不可变', () => {
   assert.equal(getEntitiesByType(withMember, '成员').length, 1);
 });
 
+test('实体名称不是身份标识，允许不同实体同名', () => {
+  let world = createEmptyWorld({ name: '测试', modelVersion: ORGANIZATION_MODEL.version });
+  world = createEntity(world, { id: 'm1', name: '张伟', type: '成员', states: { 任职状态: '在职' } }, ORGANIZATION_MODEL);
+  world = createEntity(world, { id: 'm2', name: '张伟', type: '成员', states: { 任职状态: '在职' } }, ORGANIZATION_MODEL);
+  world = createEntity(world, { id: 'd1', name: '张伟', type: '部门', states: { 生命周期状态: '运行中' } }, ORGANIZATION_MODEL);
+  assert.equal(world.entities.filter((entity) => entity.name === '张伟').length, 3);
+});
+
 test('状态值必须符合实体类型定义且更新不修改原世界', () => {
   let world = createEmptyWorld({ name: '测试', modelVersion: ORGANIZATION_MODEL.version });
   world = createEntity(world, { id: 'm1', name: '甲', type: '成员', states: { 任职状态: '在职' } }, ORGANIZATION_MODEL);
