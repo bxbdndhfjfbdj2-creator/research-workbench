@@ -16,8 +16,18 @@ function entityCard(entity, subtitle='') {
 function listNames(world, relations, side) {
   return relations.map((r) => name(world, side === 'subject' ? r.subjectId : r.objectId)).join('、') || '无';
 }
+function containsExact(value, target) {
+  if (value === target) return true;
+  if (Array.isArray(value)) return value.some((item) => containsExact(item, target));
+  if (value && typeof value === 'object') return Object.values(value).some((item) => containsExact(item, target));
+  return false;
+}
 function recentFor(events, entityId) {
-  return events.filter((event) => JSON.stringify(event.params || {}).includes(entityId) || JSON.stringify(event.changes || {}).includes(entityId)).slice(-5).reverse();
+  return events.filter((event) => containsExact(event.params || {}, entityId) || containsExact(event.changes || [], entityId)).slice(-5).reverse();
+}
+function recentEventHtml(events, entityId) {
+  const recent = recentFor(events, entityId);
+  return recent.length ? recent.map((event) => `<p class="mini-event">${escapeHtml(event.type)} · ${escapeHtml(event.status)}</p>`).join('') : empty('暂无相关事件');
 }
 
 export function renderOverview(world, events) {
@@ -38,8 +48,7 @@ export function renderPeople(world, events, { selectedId } = {}) {
     const depts = getRelations(world, { subjectId:selected.id, type:'属于' });
     const projects = getRelations(world, { subjectId:selected.id, type:'参与' });
     const owns = getRelations(world, { objectId:selected.id, type:'负责人' });
-    const recent = recentFor(events, selected.id);
-    detail = `<aside class="detail-card"><p class="kicker">人员详情</p><h3>${escapeHtml(selected.name)}</h3><dl><dt>任职状态</dt><dd>${escapeHtml(state(selected,'任职状态'))}</dd><dt>所属部门</dt><dd>${listNames(world,depts,'object')}</dd><dt>参与项目</dt><dd>${listNames(world,projects,'object')}</dd><dt>负责对象</dt><dd>${listNames(world,owns,'subject')}</dd></dl><h4>相关事件</h4>${recent.length?recent.map(e=>`<p class="mini-event">${escapeHtml(e.type)} · ${escapeHtml(e.status)}</p>`).join(''):empty('暂无相关事件')}</aside>`;
+    detail = `<aside class="detail-card"><p class="kicker">人员详情</p><h3>${escapeHtml(selected.name)}</h3><dl><dt>任职状态</dt><dd>${escapeHtml(state(selected,'任职状态'))}</dd><dt>所属部门</dt><dd>${listNames(world,depts,'object')}</dd><dt>参与项目</dt><dd>${listNames(world,projects,'object')}</dd><dt>负责对象</dt><dd>${listNames(world,owns,'subject')}</dd></dl><h4>相关事件</h4>${recentEventHtml(events, selected.id)}</aside>`;
   }
   return `<section class="view-head"><div><p class="kicker">成员</p><h2>人员</h2><p>人员归属、项目参与和负责人关系彼此独立。</p></div></section><div class="split-view"><div class="entity-list">${people.length?people.map((person)=>entityCard(person)).join(''):empty('暂无成员')}</div>${detail}</div>`;
 }
@@ -51,7 +60,7 @@ export function renderDepartments(world, events, { selectedId } = {}) {
   if(selected?.type==='部门'){
     const members=getRelations(world,{type:'属于',objectId:selected.id});
     const owners=getRelations(world,{subjectId:selected.id,type:'负责人'});
-    detail=`<aside class="detail-card"><p class="kicker">部门详情</p><h3>${escapeHtml(selected.name)}</h3><dl><dt>生命周期</dt><dd>${escapeHtml(state(selected,'生命周期状态'))}</dd><dt>负责人</dt><dd>${listNames(world,owners,'object')}</dd><dt>成员</dt><dd>${listNames(world,members,'subject')}</dd></dl></aside>`;
+    detail=`<aside class="detail-card"><p class="kicker">部门详情</p><h3>${escapeHtml(selected.name)}</h3><dl><dt>生命周期</dt><dd>${escapeHtml(state(selected,'生命周期状态'))}</dd><dt>负责人</dt><dd>${listNames(world,owners,'object')}</dd><dt>成员</dt><dd>${listNames(world,members,'subject')}</dd></dl><h4>相关事件</h4>${recentEventHtml(events, selected.id)}</aside>`;
   }
   return `<section class="view-head"><div><p class="kicker">组织单元</p><h2>部门</h2><p>部门是运行时存在，可以随组织变化创建、结束和更换负责人。</p></div></section><div class="split-view"><div class="entity-list">${departments.length?departments.map((d)=>entityCard(d,`${getRelations(world,{type:'属于',objectId:d.id}).length} 名成员`)).join(''):empty('暂无部门')}</div>${detail}</div>`;
 }
@@ -68,7 +77,7 @@ export function renderProjects(world, events, { selectedId } = {}) {
       const depts=getRelations(world,{subjectId:r.subjectId,type:'属于'});
       return `<li><strong>${escapeHtml(member?.name||r.subjectId)}</strong><span>${listNames(world,depts,'object')}</span></li>`;
     }).join('');
-    detail=`<aside class="detail-card"><p class="kicker">项目详情</p><h3>${escapeHtml(selected.name)}</h3><dl><dt>生命周期</dt><dd>${escapeHtml(state(selected,'生命周期状态'))}</dd><dt>负责人</dt><dd>${listNames(world,owners,'object')}</dd></dl><h4>跨部门参与成员</h4><ul class="participant-list">${participantLines||'<li>暂无参与成员</li>'}</ul></aside>`;
+    detail=`<aside class="detail-card"><p class="kicker">项目详情</p><h3>${escapeHtml(selected.name)}</h3><dl><dt>生命周期</dt><dd>${escapeHtml(state(selected,'生命周期状态'))}</dd><dt>负责人</dt><dd>${listNames(world,owners,'object')}</dd></dl><h4>跨部门参与成员</h4><ul class="participant-list">${participantLines||'<li>暂无参与成员</li>'}</ul><h4>相关事件</h4>${recentEventHtml(events, selected.id)}</aside>`;
   }
   return `<section class="view-head"><div><p class="kicker">横向协作</p><h2>项目</h2><p>项目与部门平级存在，可以跨部门连接成员。</p></div></section><div class="split-view"><div class="entity-list">${projects.length?projects.map((p)=>entityCard(p,`${getRelations(world,{type:'参与',objectId:p.id}).length} 名参与者`)).join(''):empty('暂无项目')}</div>${detail}</div>`;
 }
@@ -79,7 +88,7 @@ export function renderRelations(world) {
 }
 
 export function renderEvents(events) {
-  return `<section class="view-head"><div><p class="kicker">审计历史</p><h2>事件</h2><p>成功和失败的组织变更都会留下记录。</p></div></section><div class="event-feed">${events.length?[...events].reverse().map((e)=>`<article class="event-entry ${e.status==='失败'?'failed':''}"><div><strong>${escapeHtml(e.type)}</strong><span>${escapeHtml(e.status)}</span></div><small>${escapeHtml(e.occurredAt||'')}</small>${e.error?`<p>${escapeHtml(e.error)}</p>`:''}<details><summary>查看变化</summary><pre>${escapeHtml(JSON.stringify(e.changes||[],null,2))}</pre></details></article>`).join(''):empty('暂无事件')}</div>`;
+  return `<section class="view-head"><div><p class="kicker">审计历史</p><h2>事件</h2><p>成功和失败的组织变更都会留下记录。</p></div></section><div class="event-feed">${events.length?[...events].reverse().map((e)=>`<article class="event-entry ${e.status==='失败'?'failed':''}"><div><strong>${escapeHtml(e.type)}</strong><span>${escapeHtml(e.status)}</span></div><small>${escapeHtml(e.occurredAt||'')}</small>${e.error?`<p>${escapeHtml(e.error)}</p>`:''}<details><summary>事件参数</summary><pre>${escapeHtml(JSON.stringify(e.params||{},null,2))}</pre></details><details><summary>查看变化</summary><pre>${escapeHtml(JSON.stringify(e.changes||[],null,2))}</pre></details></article>`).join(''):empty('暂无事件')}</div>`;
 }
 
 export function renderPolicy(model) {

@@ -35,7 +35,6 @@ export function getRelations(world, filter = {}) {
 export function createEntity(world, entity, model) {
   assertEntityShape(entity, model);
   if (getEntity(world, entity.id)) throw new Error(`实体已存在：${entity.id}`);
-  if (world.entities.some((item) => item.name === entity.name)) throw new Error(`实体名称已存在：${entity.name}`);
   const next = clone(world);
   next.entities.push({ ...clone(entity), states: clone(entity.states || {}) });
   return next;

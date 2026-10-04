@@ -14,8 +14,15 @@ function applyOperation(world, operation, { model, idFactory }) {
     }
     case '设置状态':
       return { world: setState(world, operation.change, model), change: { kind: operation.kind, ...structuredClone(operation.change) } };
-    case '建立关系':
-      return { world: addRelation(world, operation.relation, model), change: { kind: operation.kind, ...structuredClone(operation.relation) } };
+    case '建立关系': {
+      const relation = operation.relation;
+      const alreadyExists = world.relations.some((item) =>
+        item.subjectId === relation.subjectId && item.type === relation.type && item.objectId === relation.objectId);
+      return {
+        world: addRelation(world, relation, model),
+        change: alreadyExists ? null : { kind: operation.kind, ...structuredClone(relation) },
+      };
+    }
     case '取消关系':
       return { world: removeRelation(world, operation.relation, model), change: { kind: operation.kind, ...structuredClone(operation.relation) } };
     default:
@@ -29,7 +36,7 @@ export function applyOperations(world, operations, { model, idFactory } = {}) {
   for (const operation of operations || []) {
     const result = applyOperation(working, operation, { model, idFactory });
     working = result.world;
-    changes.push(result.change);
+    if (result.change) changes.push(result.change);
   }
   return { world: working, changes };
 }
