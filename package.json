@@ -1,30 +1,11 @@
 {
-  "name": "research-workbench",
+  "name": "organization-language-demo",
   "private": true,
-  "version": "0.0.0",
-  "packageManager": "pnpm@11.7.0",
+  "type": "module",
   "engines": {
-    "node": ">=22.19"
+    "node": ">=22"
   },
   "scripts": {
-    "test": "vitest run --exclude 'tests/acceptance/**'",
-    "typecheck": "tsc -p tsconfig.base.json --noEmit",
-    "lint": "tsc -p tsconfig.base.json --noEmit",
-    "build": "pnpm --filter @research-workbench/web build && tsc -p tsconfig.base.json --noEmit",
-    "db:migrate:test": "vitest run tests/integration/db-foundation.test.ts",
-    "bootstrap:team": "tsx scripts/bootstrap-team.ts",
-    "acceptance": "playwright test tests/acceptance/phase-01.spec.ts tests/acceptance/research-network.spec.ts tests/acceptance/scientific-decision-lock.spec.ts"
-  },
-  "devDependencies": {
-    "@types/node": "^22.0.0",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "typescript": "^5.8.0",
-    "vitest": "^3.0.0",
-    "@testcontainers/postgresql": "^11.0.0",
-    "testcontainers": "^11.0.0",
-    "tsx": "^4.20.0",
-    "@types/pg": "^8.15.0",
-    "@playwright/test": "^1.55.0"
+    "start": "node server.mjs"
   }
 }
