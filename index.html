@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="组织语言演示：用事件、规则、任务和状态变化描述组织如何运行。">
+  <title>组织语言 · 演示版</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">组织语言 · 最小可执行模型</p>
+        <h1>星河公司</h1>
+        <p class="hero-copy">观察一件普通的“请假”，如何在组织里变成事件、规则、任务与新的状态。</p>
+      </div>
+      <div class="hero-actions">
+        <div class="status-badge" aria-live="polite">
+          <span>当前状态</span>
+          <strong id="organization-status">运行正常</strong>
+        </div>
+        <button id="reset-button" class="button button-quiet" type="button">重置演示</button>
+      </div>
+    </header>
+
+    <section class="flow-strip" aria-label="组织运行逻辑">
+      <span>事件</span><b>→</b><span>规则</span><b>→</b><span>任务</span><b>→</b><span>新事件</span><b>→</b><span>状态变化</span>
+    </section>
+
+    <section class="dashboard">
+      <article class="panel" id="members-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="panel-kicker">组织</p>
+            <h2>成员与角色</h2>
+          </div>
+          <span class="count-badge">2 人</span>
+        </div>
+        <div id="members-list" class="member-list"></div>
+        <div class="panel-action">
+          <button id="submit-leave-button" class="button button-primary" type="button">张三提交请假</button>
+          <p id="submit-hint" class="hint">点击后会触发组织规则。</p>
+        </div>
+      </article>
+
+      <article class="panel panel-focus" id="tasks-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="panel-kicker">任务</p>
+            <h2>现在需要谁做什么</h2>
+          </div>
+          <span id="task-count" class="count-badge">0 项</span>
+        </div>
+        <div id="tasks-list" class="task-list" aria-live="polite"></div>
+      </article>
+
+      <article class="panel" id="events-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="panel-kicker">事件</p>
+            <h2>已经发生了什么</h2>
+          </div>
+          <span id="event-count" class="count-badge">0 条</span>
+        </div>
+        <div id="events-list" class="event-list" aria-live="polite"></div>
+      </article>
+    </section>
+
+    <section class="rules-section" id="rules-panel">
+      <div class="rules-copy">
+        <p class="panel-kicker">规则</p>
+        <h2>组织制度本身，就是可执行逻辑</h2>
+        <p>这不是写死在按钮里的流程说明，而是一条会被事件触发、并产生任务的组织规则。</p>
+      </div>
+      <div id="rules-list" class="rule-card"></div>
+    </section>
+  </main>
+
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>
